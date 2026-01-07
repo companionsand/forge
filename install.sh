@@ -106,7 +106,8 @@ sudo apt install -y \
     rfkill \
     git \
     curl \
-    wget
+    wget \
+    mpv
 log_success "System dependencies installed"
 
 # Step 2: Ensure ALSA-only audio (disable PipeWire and PulseAudio if present)
