@@ -11,7 +11,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 WRAPPER_DIR="$SCRIPT_DIR"
 CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
 VENV_DIR="$CLIENT_DIR/venv"
-GIT_REPO_URL="https://github.com/companionsand/raspberry-pi-client.git"
+GIT_REPO_URL="git@github.com:companionsand/raspberry-pi-client.git"  # SSH URL (requires deploy key)
 
 # Logging
 LOG_PREFIX="[agent-launcher]"
@@ -51,7 +51,40 @@ else
     log_info "No internet connection - main.py will handle WiFi setup if enabled"
 fi
 
-# Step 2: Check if git repo exists
+# Step 2: Ensure deploy key is set up (for private repository access)
+# This is especially important for devices that were provisioned before the repo went private
+if [ -f "$WRAPPER_DIR/github/fetch_deploy_key.sh" ]; then
+    source "$WRAPPER_DIR/github/fetch_deploy_key.sh"
+    
+    # Check if deploy key is already set up
+    if ! has_valid_deploy_key; then
+        log_info "Deploy key not found - fetching from backend..."
+        
+        # Load device credentials from client .env
+        if [ -f "$CLIENT_DIR/.env" ]; then
+            DEVICE_ID=$(grep -E "^DEVICE_ID=" "$CLIENT_DIR/.env" 2>/dev/null | cut -d'=' -f2 | tr -d ' "'"'" || echo "")
+            DEVICE_PRIVATE_KEY=$(grep -E "^DEVICE_PRIVATE_KEY=" "$CLIENT_DIR/.env" 2>/dev/null | cut -d'=' -f2 | tr -d ' "'"'" || echo "")
+        fi
+        
+        if [ -n "$DEVICE_ID" ] && [ -n "$DEVICE_PRIVATE_KEY" ]; then
+            if ping -c 1 -W 2 8.8.8.8 &> /dev/null; then
+                if fetch_and_setup_deploy_key "$DEVICE_ID" "$DEVICE_PRIVATE_KEY"; then
+                    log_success "Deploy key configured"
+                else
+                    log_info "Could not fetch deploy key (will try HTTPS fallback)"
+                fi
+            else
+                log_info "No internet - skipping deploy key fetch"
+            fi
+        else
+            log_info "Device credentials not found - skipping deploy key fetch"
+        fi
+    else
+        log_info "Deploy key already configured"
+    fi
+fi
+
+# Step 3: Check if git repo exists
 if [ ! -d "$CLIENT_DIR" ]; then
     log_error "Repository not found at $CLIENT_DIR"
     log_error "This should not happen - install.sh should have cloned it"
@@ -60,6 +93,14 @@ if [ ! -d "$CLIENT_DIR" ]; then
 else
     log_info "Repository found. Checking for updates..."
     cd "$CLIENT_DIR"
+    
+    # Ensure we're using SSH remote if deploy key is available
+    if [ -f "$WRAPPER_DIR/github/fetch_deploy_key.sh" ]; then
+        source "$WRAPPER_DIR/github/fetch_deploy_key.sh"
+        if has_valid_deploy_key; then
+            switch_to_ssh_remote "$CLIENT_DIR" 2>/dev/null || true
+        fi
+    fi
     
     # Try to pull latest changes (gracefully handle failure if no internet)
     if ping -c 1 -W 2 8.8.8.8 &> /dev/null; then
@@ -324,6 +365,14 @@ while true; do
     if ping -c 1 -W 2 8.8.8.8 &> /dev/null; then
         log_info "Checking for updates before restart..."
         cd "$CLIENT_DIR"
+        
+        # Ensure deploy key is set up and remote is SSH
+        if [ -f "$WRAPPER_DIR/github/fetch_deploy_key.sh" ]; then
+            source "$WRAPPER_DIR/github/fetch_deploy_key.sh"
+            if has_valid_deploy_key; then
+                switch_to_ssh_remote "$CLIENT_DIR" 2>/dev/null || true
+            fi
+        fi
         
         if git fetch origin "$GIT_BRANCH" 2>/dev/null; then
             # Check if there are updates

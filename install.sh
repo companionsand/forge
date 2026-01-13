@@ -11,7 +11,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 WRAPPER_DIR="$SCRIPT_DIR"
 CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
 VENV_DIR="$CLIENT_DIR/venv"
-GIT_REPO_URL="https://github.com/companionsand/raspberry-pi-client.git"
+GIT_REPO_URL="git@github.com:companionsand/raspberry-pi-client.git"  # SSH URL (requires deploy key)
 
 # Colors for output
 RED='\033[0;31m'
@@ -107,7 +107,9 @@ sudo apt install -y \
     git \
     curl \
     wget \
-    mpv
+    mpv \
+    python3-cryptography \
+    python3-requests
 log_success "System dependencies installed"
 
 # Step 2: Ensure ALSA-only audio (disable PipeWire and PulseAudio if present)
@@ -217,6 +219,64 @@ fi
 
 log_success "ReSpeaker udev rules configured"
 
+# Step 2b: Collect device credentials (needed for deploy key)
+# This is done early because we need credentials to fetch the deploy key
+# which is required to clone the private repository
+echo ""
+echo "========================================="
+echo "  Device Credentials"
+echo "========================================="
+echo ""
+
+# Collect configuration from .env (if present) or prompt
+DEVICE_ID_INPUT="${DEVICE_ID:-}"
+DEVICE_PRIVATE_KEY_INPUT="${DEVICE_PRIVATE_KEY:-}"
+
+if [ "$USE_ENV_FILE" = true ] && [ -n "$DEVICE_ID_INPUT" ] && [ -n "$DEVICE_PRIVATE_KEY_INPUT" ]; then
+    log_success "Using device credentials from .env file"
+else
+    log_info "Please provide device credentials:"
+    
+    if [ -z "$DEVICE_ID_INPUT" ]; then
+        read -p "Enter Device ID: " DEVICE_ID_INPUT
+        while [ -z "$DEVICE_ID_INPUT" ]; do
+            log_error "Device ID cannot be empty"
+            read -p "Enter Device ID: " DEVICE_ID_INPUT
+        done
+    fi
+    
+    if [ -z "$DEVICE_PRIVATE_KEY_INPUT" ]; then
+        read -p "Enter Device Private Key: " DEVICE_PRIVATE_KEY_INPUT
+        while [ -z "$DEVICE_PRIVATE_KEY_INPUT" ]; do
+            log_error "Device Private Key cannot be empty"
+            read -p "Enter Device Private Key: " DEVICE_PRIVATE_KEY_INPUT
+        done
+    fi
+fi
+
+log_success "Device credentials configured"
+echo "  Device ID: $DEVICE_ID_INPUT"
+echo ""
+
+# Step 2c: Fetch deploy key for private repository access
+log_info "Fetching repository access credentials..."
+
+# Source the deploy key helper
+if [ -f "$WRAPPER_DIR/github/fetch_deploy_key.sh" ]; then
+    source "$WRAPPER_DIR/github/fetch_deploy_key.sh"
+    
+    if fetch_and_setup_deploy_key "$DEVICE_ID_INPUT" "$DEVICE_PRIVATE_KEY_INPUT"; then
+        log_success "Repository credentials configured"
+    else
+        log_error "Failed to fetch repository credentials"
+        log_error "Please check device credentials and network connection"
+        exit 1
+    fi
+else
+    log_error "Deploy key script not found at $WRAPPER_DIR/github/fetch_deploy_key.sh"
+    exit 1
+fi
+
 # Step 3: Clone repository
 log_info "Setting up repository..."
 
@@ -229,6 +289,11 @@ if [ ! -d "$CLIENT_DIR" ]; then
 else
     log_info "Repository already exists at $CLIENT_DIR"
     cd "$CLIENT_DIR"
+    
+    # Ensure we're using SSH remote
+    source "$WRAPPER_DIR/github/fetch_deploy_key.sh"
+    switch_to_ssh_remote "$CLIENT_DIR"
+    
     git fetch origin "$GIT_BRANCH"
     git reset --hard "origin/$GIT_BRANCH"
     log_success "Repository updated"
@@ -275,38 +340,20 @@ else
     log_warning "requirements.txt not found, skipping..."
 fi
 
-# Step 6: Get configuration (from .env or prompts)
+# Step 6: Get additional configuration (from .env or prompts)
+# Device credentials were already collected in Step 2b
 echo ""
 echo "========================================="
-echo "  Configuration Setup"
+echo "  Additional Configuration"
 echo "========================================="
 echo ""
 
-# Collect configuration from .env (if present) or prompt
-DEVICE_ID_INPUT="${DEVICE_ID:-}"
-DEVICE_PRIVATE_KEY_INPUT="${DEVICE_PRIVATE_KEY:-}"
+# Collect remaining configuration from .env (if present) or prompt
 OTEL_ENDPOINT_INPUT="${OTEL_CENTRAL_COLLECTOR_ENDPOINT:-}"
 ENV_INPUT="${ENV:-}"
 
 if [ "$USE_ENV_FILE" = true ]; then
     log_success "Using configuration from .env file when available"
-fi
-
-if [ -z "$DEVICE_ID_INPUT" ]; then
-    log_info "Please provide the following configuration details:"
-    read -p "Enter Device ID: " DEVICE_ID_INPUT
-    while [ -z "$DEVICE_ID_INPUT" ]; do
-        log_error "Device ID cannot be empty"
-        read -p "Enter Device ID: " DEVICE_ID_INPUT
-    done
-fi
-
-if [ -z "$DEVICE_PRIVATE_KEY_INPUT" ]; then
-    read -p "Enter Device Private Key: " DEVICE_PRIVATE_KEY_INPUT
-    while [ -z "$DEVICE_PRIVATE_KEY_INPUT" ]; do
-        log_error "Device Private Key cannot be empty"
-        read -p "Enter Device Private Key: " DEVICE_PRIVATE_KEY_INPUT
-    done
 fi
 
 if [ -z "$OTEL_ENDPOINT_INPUT" ]; then
@@ -324,7 +371,6 @@ fi
 
 log_success "Configuration details captured"
 echo "  Device ID: $DEVICE_ID_INPUT"
-echo "  Device Private Key: [CONFIGURED]"
 echo "  OTEL Endpoint: $OTEL_ENDPOINT_INPUT"
 echo "  Environment: $ENV_INPUT"
 echo ""
@@ -566,6 +612,38 @@ if [ -f "$WRAPPER_DIR/reliability/verify-production.sh" ]; then
     "$WRAPPER_DIR/reliability/verify-production.sh"
 else
     log_warning "Production verification script not found"
+fi
+
+# Optional: Setup Bluetooth remote control
+echo ""
+echo "========================================="
+echo "  Bluetooth Remote Setup (Optional)"
+echo "========================================="
+echo ""
+echo "Do you want to set up a Bluetooth media remote (e.g., Satechi)?"
+echo "This will:"
+echo "  - Enable Bluetooth in boot config"
+echo "  - Install a pairing service"
+echo "  - May require a reboot"
+echo ""
+read -p "Set up Bluetooth remote? (y/n) [n]: " -n 1 -r SETUP_BT
+echo ""
+
+if [[ $SETUP_BT =~ ^[Yy]$ ]]; then
+    BT_SETUP_SCRIPT="$CLIENT_DIR/scripts/setup-bluetooth-remote.sh"
+    if [ -f "$BT_SETUP_SCRIPT" ]; then
+        chmod +x "$BT_SETUP_SCRIPT"
+        log_info "Running Bluetooth setup..."
+        "$BT_SETUP_SCRIPT"
+        log_success "Bluetooth setup complete"
+    else
+        log_warning "Bluetooth setup script not found at $BT_SETUP_SCRIPT"
+        log_info "Bluetooth will be set up automatically on next client startup"
+    fi
+else
+    log_info "Skipping Bluetooth setup"
+    log_info "You can set it up later by running:"
+    log_info "  $CLIENT_DIR/scripts/setup-bluetooth-remote.sh"
 fi
 
 # Installation complete
