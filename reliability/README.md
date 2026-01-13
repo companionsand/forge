@@ -16,7 +16,6 @@ Configures persistent system-level settings for maximum reliability:
 - **Power Button Disable**: Prevents accidental shutdowns
 - **TCP Keepalives**: Detects dead WebSocket connections
 - **WiFi Power Save**: Disables power management (persistent)
-- **Bluetooth Disable**: Reduces interference and power
 - **NTP Time Sync**: Ensures valid SSL certificates
 
 **Usage:**
@@ -98,7 +97,6 @@ These settings survive reboots:
 - Log limits
 - Power button disable
 - WiFi power save (NetworkManager)
-- Bluetooth disable
 
 ---
 

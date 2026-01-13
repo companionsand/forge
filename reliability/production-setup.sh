@@ -228,22 +228,8 @@ else
     log_warning "No active WiFi connection found (will be configured when connected)"
 fi
 
-# 9. Disable Bluetooth (if not needed)
-log_info "[9/10] Disabling Bluetooth..."
-if [ -f /boot/firmware/config.txt ]; then
-    if grep -q "^dtoverlay=disable-bt" /boot/firmware/config.txt 2>/dev/null; then
-        log_info "Bluetooth already disabled"
-    else
-        log_info "Disabling Bluetooth in boot config..."
-        echo 'dtoverlay=disable-bt' | sudo tee -a /boot/firmware/config.txt > /dev/null
-        log_success "Bluetooth disabled (requires reboot)"
-    fi
-else
-    log_warning "Boot config not found at /boot/firmware/config.txt (skipping)"
-fi
-
-# 10. NTP Time Sync
-log_info "[10/10] Ensuring NTP time sync is enabled..."
+# 9. NTP Time Sync
+log_info "[9/9] Ensuring NTP time sync is enabled..."
 sudo timedatectl set-ntp true 2>/dev/null || log_warning "Could not enable NTP"
 
 # Add fallback NTP servers
@@ -275,7 +261,6 @@ echo "  ✓ Log limits set (50MB max)"
 echo "  ✓ Power button disabled"
 echo "  ✓ TCP keepalives configured"
 echo "  ✓ WiFi power save disabled (persistent)"
-echo "  ✓ Bluetooth disabled"
 echo "  ✓ NTP time sync enabled"
 echo ""
 log_warning "IMPORTANT: Some settings require a reboot to take effect"
