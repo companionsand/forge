@@ -92,6 +92,12 @@ if [ ! -d "$CLIENT_DIR" ]; then
     exit 1
 else
     log_info "Repository found. Checking for updates..."
+    
+    # Ensure git safe.directory is configured for root (in case install.sh didn't set it)
+    # This prevents "dubious ownership" errors when service runs as root on kin-owned repos
+    git config --global --add safe.directory "$WRAPPER_DIR" 2>/dev/null || true
+    git config --global --add safe.directory "$CLIENT_DIR" 2>/dev/null || true
+    
     cd "$CLIENT_DIR"
     
     # Ensure we're using SSH remote if deploy key is available
@@ -364,6 +370,11 @@ while true; do
     # Before restarting, pull latest changes from git (if internet available)
     if ping -c 1 -W 2 8.8.8.8 &> /dev/null; then
         log_info "Checking for updates before restart..."
+        
+        # Ensure git safe.directory is configured (prevents "dubious ownership" errors)
+        git config --global --add safe.directory "$WRAPPER_DIR" 2>/dev/null || true
+        git config --global --add safe.directory "$CLIENT_DIR" 2>/dev/null || true
+        
         cd "$CLIENT_DIR"
         
         # Ensure deploy key is set up and remote is SSH

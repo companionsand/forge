@@ -280,6 +280,12 @@ fi
 # Step 3: Clone repository
 log_info "Setting up repository..."
 
+# Configure git safe.directory for root user (required when service runs as root)
+# This prevents "dubious ownership" errors when root operates on kin-owned repos
+log_info "Configuring git safe.directory for root..."
+sudo git config --global --add safe.directory "$WRAPPER_DIR" 2>/dev/null || true
+sudo git config --global --add safe.directory "$CLIENT_DIR" 2>/dev/null || true
+
 if [ ! -d "$CLIENT_DIR" ]; then
     log_info "Cloning repository from $GIT_REPO_URL..."
     mkdir -p "$WRAPPER_DIR"
