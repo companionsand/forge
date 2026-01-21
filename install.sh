@@ -97,8 +97,10 @@ install_rpi_connect() {
     
     # Check if rpi-connect is already installed and configured
     if command -v rpi-connect &>/dev/null; then
-        # Check if already signed in
-        if rpi-connect status 2>/dev/null | grep -q "signed in"; then
+        # Check if already signed in (multiple ways to detect this)
+        local status_output
+        status_output=$(rpi-connect status 2>&1 || true)
+        if echo "$status_output" | grep -qi "signed in"; then
             log_success "Raspberry Pi Connect is already installed and signed in"
             return 0
         else
@@ -131,37 +133,54 @@ install_rpi_connect() {
         return 1
     fi
     
-    # Sign in
-    log_info "Initiating Raspberry Pi Connect sign-in..."
-    echo ""
-    echo "========================================="
-    echo "  Raspberry Pi Connect Sign-In Required"
-    echo "========================================="
-    echo ""
-    echo "Running 'rpi-connect signin'..."
-    echo "A URL will be displayed below. Please:"
-    echo "  1. Copy the URL (similar to https://connect.raspberrypi.com/verify/XXXX-XXXX)"
-    echo "  2. Open it in a browser on another device"
-    echo "  3. Sign in with your Raspberry Pi account"
-    echo "  4. Complete the verification"
-    echo ""
+    # Try to sign in and capture output
+    log_info "Checking Raspberry Pi Connect sign-in status..."
+    local signin_output
+    signin_output=$(rpi-connect signin 2>&1 || true)
     
-    if ! rpi-connect signin; then
-        log_error "Raspberry Pi Connect sign-in failed"
-        return 1
+    # Check if already signed in
+    if echo "$signin_output" | grep -qi "already signed in"; then
+        log_success "Raspberry Pi Connect is already signed in"
+        return 0
     fi
     
-    echo ""
-    read -p "Press Enter after you have completed the Raspberry Pi Connect sign-in... " -r
-    echo ""
+    # Check if sign-in URL was provided (needs user action)
+    if echo "$signin_output" | grep -qi "connect.raspberrypi.com"; then
+        echo ""
+        echo "========================================="
+        echo "  Raspberry Pi Connect Sign-In Required"
+        echo "========================================="
+        echo ""
+        echo "A sign-in URL has been generated. Please:"
+        echo "  1. Copy the URL shown above"
+        echo "  2. Open it in a browser on another device"
+        echo "  3. Sign in with your Raspberry Pi account"
+        echo "  4. Complete the verification"
+        echo ""
+        echo "URL from rpi-connect:"
+        echo "$signin_output"
+        echo ""
+        read -p "Press Enter after you have completed the Raspberry Pi Connect sign-in... " -r
+        echo ""
+        
+        # Verify sign-in was successful
+        if rpi-connect status 2>/dev/null | grep -qi "signed in"; then
+            log_success "Raspberry Pi Connect is now signed in and active"
+            return 0
+        else
+            log_warning "Could not verify Raspberry Pi Connect sign-in status"
+            return 0  # Don't fail - user confirmed they completed it
+        fi
+    fi
     
-    # Verify sign-in was successful
-    if rpi-connect status 2>/dev/null | grep -q "signed in"; then
-        log_success "Raspberry Pi Connect is now signed in and active"
+    # Check if signin succeeded silently or had an unexpected result
+    if rpi-connect status 2>/dev/null | grep -qi "signed in"; then
+        log_success "Raspberry Pi Connect is signed in and active"
         return 0
     else
-        log_warning "Could not verify Raspberry Pi Connect sign-in status"
-        return 0  # Don't fail - user confirmed they completed it
+        log_warning "Raspberry Pi Connect sign-in status unclear"
+        log_info "Output was: $signin_output"
+        return 0  # Don't fail - might still be working
     fi
 }
 
