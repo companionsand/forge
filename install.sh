@@ -543,6 +543,14 @@ log_info "Installing Python requirements..."
 if [ -f "$CLIENT_DIR/requirements.txt" ]; then
     pip install -r "$CLIENT_DIR/requirements.txt" -q
     log_success "Python requirements installed"
+    
+    # Install openwakeword separately with --no-deps
+    # openwakeword requires tflite-runtime which has no Python 3.13 wheels
+    # We use ONNX backend anyway, so tflite-runtime is not needed
+    # Required deps (tqdm, scikit-learn) are already in requirements.txt
+    log_info "Installing openwakeword (no-deps)..."
+    pip install --no-deps "openwakeword>=0.6.0" -q
+    log_success "openwakeword installed"
 else
     log_warning "requirements.txt not found, skipping..."
 fi

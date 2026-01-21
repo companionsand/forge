@@ -151,6 +151,16 @@ if [ -f "requirements.txt" ]; then
     # Try to install requirements (gracefully handle failure if no internet)
     if pip install --upgrade pip -q 2>/dev/null && pip install -r requirements.txt -q 2>/dev/null; then
         log_success "Requirements installed"
+        
+        # Install openwakeword separately with --no-deps
+        # openwakeword requires tflite-runtime which has no Python 3.13 wheels
+        # We use ONNX backend anyway, so tflite-runtime is not needed
+        # Required deps (tqdm, scikit-learn) are already in requirements.txt
+        if pip install --no-deps "openwakeword>=0.6.0" -q 2>/dev/null; then
+            log_success "openwakeword installed"
+        else
+            log_info "Could not install openwakeword (using cached version)"
+        fi
     else
         log_info "Could not install/update requirements (using cached versions)"
         log_info "If this is first boot without internet, some packages may be missing"
@@ -396,6 +406,8 @@ while true; do
                 
                 # Reinstall requirements in case they changed
                 pip install -r requirements.txt -q 2>/dev/null || log_info "Could not update requirements"
+                # Reinstall openwakeword with --no-deps (see requirements.txt comment)
+                pip install --no-deps "openwakeword>=0.6.0" -q 2>/dev/null || true
                 log_success "Updates applied"
             else
                 log_info "Already up to date"
