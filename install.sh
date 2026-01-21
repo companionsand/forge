@@ -281,26 +281,36 @@ log_success "Package list updated"
 log_info "Installing system dependencies..."
 log_info "This may take several minutes..."
 
-sudo apt install -y \
-    python3-pip \
-    python3-venv \
-    portaudio19-dev \
-    python3-pyaudio \
-    alsa-utils \
-    hostapd \
-    dnsmasq \
-    dnsutils \
-    bind9-host \
-    network-manager \
-    wireless-tools \
-    iw \
-    rfkill \
-    git \
-    curl \
-    wget \
-    mpv \
-    python3-cryptography \
-    python3-requests
+# Robust apt install with automatic retry on failure
+apt_install_robust() {
+    if sudo apt install -y "$@" 2>&1; then return 0; fi
+    log_warning "Install failed, cleaning cache and retrying..."
+    sudo apt clean && sudo apt update
+    if sudo apt install -y --fix-missing "$@" 2>&1; then return 0; fi
+    sudo apt --fix-broken install -y 2>&1 || true
+    sudo dpkg --configure -a 2>&1 || true
+    sudo apt install -y --fix-missing "$@"
+}
+
+if ! apt_install_robust \
+    python3-pip python3-venv portaudio19-dev python3-pyaudio alsa-utils \
+    hostapd dnsmasq dnsutils bind9-host network-manager wireless-tools \
+    iw rfkill git curl wget python3-cryptography python3-requests; then
+    log_error "Failed to install core dependencies. Try: sudo apt update && sudo apt --fix-broken install"
+    exit 1
+fi
+
+# mpv needs special handling - ffmpeg dependencies often have repo issues
+if ! apt_install_robust mpv; then
+    log_warning "mpv failed, trying ffmpeg first..."
+    apt_install_robust ffmpeg || true
+    if ! apt_install_robust mpv; then
+        log_error "mpv is required but could not be installed (likely temporary repo issue)"
+        log_info "Try again later: sudo apt clean && sudo apt update && sudo apt install -y mpv"
+        exit 1
+    fi
+fi
+
 log_success "System dependencies installed"
 
 # Step 2: Ensure ALSA-only audio (disable PipeWire and PulseAudio if present)
