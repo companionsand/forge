@@ -81,6 +81,178 @@ if ! ping -c 1 -W 5 8.8.8.8 &> /dev/null; then
 fi
 log_success "Internet connection verified"
 
+# =========================================
+# Remote Access Setup (Raspberry Pi Connect & Tailscale)
+# =========================================
+echo ""
+echo "========================================="
+echo "  Remote Access Setup"
+echo "========================================="
+echo ""
+log_info "Setting up remote access tools for device management..."
+
+# Function to install Raspberry Pi Connect
+install_rpi_connect() {
+    log_info "Checking Raspberry Pi Connect status..."
+    
+    # Check if rpi-connect is already installed and configured
+    if command -v rpi-connect &>/dev/null; then
+        # Check if already signed in
+        if rpi-connect status 2>/dev/null | grep -q "signed in"; then
+            log_success "Raspberry Pi Connect is already installed and signed in"
+            return 0
+        else
+            log_info "Raspberry Pi Connect is installed but not signed in"
+        fi
+    else
+        log_info "Installing Raspberry Pi Connect..."
+        if ! sudo apt update; then
+            log_error "Failed to update package list"
+            return 1
+        fi
+        
+        if ! sudo apt install -y rpi-connect-lite; then
+            log_error "Failed to install rpi-connect-lite"
+            return 1
+        fi
+        log_success "Raspberry Pi Connect installed"
+    fi
+    
+    # Enable lingering for the user (allows services to run without active login)
+    log_info "Enabling user lingering..."
+    if ! loginctl enable-linger; then
+        log_warning "Failed to enable lingering (may already be enabled)"
+    fi
+    
+    # Turn on rpi-connect
+    log_info "Enabling Raspberry Pi Connect..."
+    if ! rpi-connect on; then
+        log_error "Failed to enable rpi-connect"
+        return 1
+    fi
+    
+    # Sign in
+    log_info "Initiating Raspberry Pi Connect sign-in..."
+    echo ""
+    echo "========================================="
+    echo "  Raspberry Pi Connect Sign-In Required"
+    echo "========================================="
+    echo ""
+    echo "Running 'rpi-connect signin'..."
+    echo "A URL will be displayed below. Please:"
+    echo "  1. Copy the URL (similar to https://connect.raspberrypi.com/verify/XXXX-XXXX)"
+    echo "  2. Open it in a browser on another device"
+    echo "  3. Sign in with your Raspberry Pi account"
+    echo "  4. Complete the verification"
+    echo ""
+    
+    if ! rpi-connect signin; then
+        log_error "Raspberry Pi Connect sign-in failed"
+        return 1
+    fi
+    
+    echo ""
+    read -p "Press Enter after you have completed the Raspberry Pi Connect sign-in... " -r
+    echo ""
+    
+    # Verify sign-in was successful
+    if rpi-connect status 2>/dev/null | grep -q "signed in"; then
+        log_success "Raspberry Pi Connect is now signed in and active"
+        return 0
+    else
+        log_warning "Could not verify Raspberry Pi Connect sign-in status"
+        return 0  # Don't fail - user confirmed they completed it
+    fi
+}
+
+# Function to install Tailscale
+install_tailscale() {
+    log_info "Checking Tailscale status..."
+    
+    # Check if Tailscale is already installed and connected
+    if command -v tailscale &>/dev/null; then
+        # Check if already connected
+        if tailscale status &>/dev/null; then
+            log_success "Tailscale is already installed and connected"
+            return 0
+        else
+            log_info "Tailscale is installed but not connected"
+        fi
+    else
+        log_info "Installing Tailscale..."
+        if ! curl -fsSL https://tailscale.com/install.sh | sh; then
+            log_error "Failed to install Tailscale"
+            return 1
+        fi
+        log_success "Tailscale installed"
+    fi
+    
+    # Connect to Tailscale
+    log_info "Connecting to Tailscale..."
+    echo ""
+    echo "========================================="
+    echo "  Tailscale Authentication Required"
+    echo "========================================="
+    echo ""
+    echo "Running 'sudo tailscale up'..."
+    echo "A URL will be displayed below. Please:"
+    echo "  1. Copy the URL (similar to https://login.tailscale.com/a/1234567898765)"
+    echo "  2. Open it in a browser on another device"
+    echo "  3. Sign in with your Tailscale account"
+    echo "  4. Authorize this device"
+    echo ""
+    
+    if ! sudo tailscale up; then
+        log_error "Tailscale connection failed"
+        return 1
+    fi
+    
+    echo ""
+    read -p "Press Enter after you have completed the Tailscale sign-in... " -r
+    echo ""
+    
+    # Verify connection was successful
+    if tailscale status &>/dev/null; then
+        log_success "Tailscale is now connected"
+        # Show the Tailscale IP for reference
+        TAILSCALE_IP=$(tailscale ip -4 2>/dev/null || echo "unknown")
+        log_info "Tailscale IP: $TAILSCALE_IP"
+        return 0
+    else
+        log_warning "Could not verify Tailscale connection status"
+        return 0  # Don't fail - user confirmed they completed it
+    fi
+}
+
+# Install Raspberry Pi Connect
+if ! install_rpi_connect; then
+    log_error "Raspberry Pi Connect setup failed"
+    echo ""
+    read -p "Do you want to continue with the installation anyway? (y/n) " -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        log_info "Installation cancelled"
+        exit 1
+    fi
+    log_warning "Continuing without Raspberry Pi Connect..."
+fi
+
+# Install Tailscale
+if ! install_tailscale; then
+    log_error "Tailscale setup failed"
+    echo ""
+    read -p "Do you want to continue with the installation anyway? (y/n) " -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        log_info "Installation cancelled"
+        exit 1
+    fi
+    log_warning "Continuing without Tailscale..."
+fi
+
+log_success "Remote access setup complete"
+echo ""
+
 # Update system
 log_info "Updating system packages..."
 sudo apt update
@@ -627,20 +799,121 @@ echo "  Bluetooth Remote Setup (Optional)"
 echo "========================================="
 echo ""
 echo "Do you want to set up a Bluetooth media remote (e.g., Satechi)?"
+echo ""
 echo "This will:"
 echo "  - Enable Bluetooth in boot config"
-echo "  - Install a pairing service"
-echo "  - May require a reboot"
+echo "  - Install a background pairing service"
+echo "  - Attempt to pair your remote now"
+echo "  - May require a reboot if Bluetooth was previously disabled"
+echo ""
+echo "Supported remotes:"
+echo "  - Satechi Media Button"
+echo "  - POP Multimedia Remote"
+echo "  - Other Bluetooth media remotes"
 echo ""
 read -p "Set up Bluetooth remote? (y/n) [n]: " -n 1 -r SETUP_BT
 echo ""
 
 if [[ $SETUP_BT =~ ^[Yy]$ ]]; then
     BT_SETUP_SCRIPT="$CLIENT_DIR/scripts/setup-bluetooth-remote.sh"
+    BT_PAIRING_SCRIPT="$CLIENT_DIR/scripts/bluetooth-remote-pairing.sh"
+    
     if [ -f "$BT_SETUP_SCRIPT" ]; then
         chmod +x "$BT_SETUP_SCRIPT"
-        log_info "Running Bluetooth setup..."
+        log_info "Running Bluetooth infrastructure setup..."
         "$BT_SETUP_SCRIPT"
+        
+        # Check if a reboot is needed (Bluetooth hardware not available)
+        if [ ! -d "/sys/class/bluetooth" ] || [ -z "$(ls -A /sys/class/bluetooth 2>/dev/null)" ]; then
+            log_warning "Bluetooth hardware not yet available"
+            log_info "A reboot is required before pairing can proceed."
+            log_info "After reboot, the pairing service will automatically scan for your remote."
+            echo ""
+            echo "After rebooting:"
+            echo "  1. Put your remote into pairing mode:"
+            echo "     - Satechi: Press and hold the pairing button until the blue LED blinks rapidly"
+            echo "     - Other remotes: Refer to your remote's manual for pairing mode"
+            echo "  2. The device will automatically detect and pair with your remote"
+            echo ""
+        else
+            # Bluetooth is available, try to pair now
+            echo ""
+            echo "========================================="
+            echo "  Bluetooth Remote Pairing"
+            echo "========================================="
+            echo ""
+            echo "Let's pair your Bluetooth remote now!"
+            echo ""
+            echo "╔════════════════════════════════════════════════════════════╗"
+            echo "║  PREPARE YOUR REMOTE FOR PAIRING                           ║"
+            echo "╠════════════════════════════════════════════════════════════╣"
+            echo "║                                                            ║"
+            echo "║  For Satechi Media Button:                                 ║"
+            echo "║    1. Locate the small pairing button on the remote       ║"
+            echo "║    2. Press and HOLD the pairing button                   ║"
+            echo "║    3. Keep holding until the BLUE LED blinks rapidly      ║"
+            echo "║    4. Release the button - remote is now discoverable     ║"
+            echo "║                                                            ║"
+            echo "║  For other remotes:                                        ║"
+            echo "║    - Put your remote into pairing/discovery mode          ║"
+            echo "║    - Usually indicated by a rapidly blinking LED          ║"
+            echo "║                                                            ║"
+            echo "╚════════════════════════════════════════════════════════════╝"
+            echo ""
+            read -p "Press Enter when your remote's LED is blinking rapidly... " -r
+            echo ""
+            
+            log_info "Scanning for Bluetooth remotes (this takes about 15 seconds)..."
+            echo ""
+            
+            if [ -f "$BT_PAIRING_SCRIPT" ]; then
+                chmod +x "$BT_PAIRING_SCRIPT"
+                
+                # Run pairing script with a timeout (it normally loops forever)
+                # We'll run it in background and check results
+                timeout 45 "$BT_PAIRING_SCRIPT" &
+                PAIR_PID=$!
+                
+                # Wait for it to complete or timeout
+                if wait $PAIR_PID 2>/dev/null; then
+                    log_success "Bluetooth remote paired successfully!"
+                    echo ""
+                    echo "Your remote is now ready to use."
+                    echo "Button functions:"
+                    echo "  - Play/Pause: Start/stop listening"
+                    echo "  - Volume: Adjust device volume"
+                    echo "  - Track skip: Additional controls (if supported)"
+                    echo ""
+                else
+                    EXIT_CODE=$?
+                    if [ $EXIT_CODE -eq 124 ]; then
+                        # Timeout occurred
+                        log_warning "Pairing scan timed out"
+                        echo ""
+                        echo "Could not find your remote. This could mean:"
+                        echo "  - The remote wasn't in pairing mode (LED wasn't blinking)"
+                        echo "  - The remote is out of range"
+                        echo "  - The remote's battery is low"
+                        echo ""
+                        echo "Don't worry! The pairing service is now installed and will"
+                        echo "automatically scan for your remote in the background."
+                        echo ""
+                        echo "To try pairing again later:"
+                        echo "  1. Put your remote into pairing mode (hold button until LED blinks)"
+                        echo "  2. The device will detect and pair automatically"
+                        echo "  3. Or run: $BT_PAIRING_SCRIPT"
+                        echo ""
+                    else
+                        log_warning "Pairing process ended (exit code: $EXIT_CODE)"
+                        log_info "The pairing service will continue trying in the background."
+                    fi
+                fi
+            else
+                log_warning "Pairing script not found at $BT_PAIRING_SCRIPT"
+                log_info "Bluetooth setup is complete but manual pairing may be needed."
+            fi
+        fi
+        
         log_success "Bluetooth setup complete"
     else
         log_warning "Bluetooth setup script not found at $BT_SETUP_SCRIPT"
