@@ -311,6 +311,11 @@ if ! apt_install_robust mpv; then
     fi
 fi
 
+# ffmpeg required for family voice message playback (decode webm/mp3 to PCM on device)
+if ! apt_install_robust ffmpeg; then
+    log_warning "ffmpeg could not be installed (family voice message playback may fail for non-WAV formats)"
+fi
+
 log_success "System dependencies installed"
 
 # Step 2: Ensure ALSA-only audio (disable PipeWire and PulseAudio if present)

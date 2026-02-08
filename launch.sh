@@ -170,6 +170,16 @@ else
     exit 1
 fi
 
+# Ensure ffmpeg is available (for family voice message playback - decode webm/mp3)
+if ! command -v ffmpeg &>/dev/null; then
+    log_info "ffmpeg not found - attempting to install (required for family voice message playback)..."
+    if sudo apt-get update -qq 2>/dev/null && sudo apt-get install -y -qq ffmpeg 2>/dev/null; then
+        log_success "ffmpeg installed"
+    else
+        log_info "Could not install ffmpeg (family voice message playback may fail for non-WAV formats)"
+    fi
+fi
+
 # Step 5: Check if .env file exists
 if [ ! -f ".env" ]; then
     log_error ".env file not found in $CLIENT_DIR"
