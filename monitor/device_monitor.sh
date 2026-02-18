@@ -303,7 +303,6 @@ send_heartbeat() {
 
         # Device state for heartbeat: firmware, wifi SSID, volume
         firmware_version=$(cd "$CLIENT_DIR" 2>/dev/null && python3 -c "from version import __version__; print(__version__)" 2>/dev/null)
-        wifi_ssid=$(iwgetid -r 2>/dev/null)
         # Volume: read Softvol (same control set via WebSocket from conv orchestrator / provision)
         volume=""
         if command -v amixer >/dev/null 2>&1; then
@@ -316,29 +315,42 @@ send_heartbeat() {
             done
         fi
         export FW_VER="$firmware_version"
-        export WIFI_SSID="$wifi_ssid"
         export VOLUME="$volume"
     fi
     
     local body
     if [ -n "$logs" ] && [ -n "$metrics" ]; then
-        # Use Python to properly merge JSON objects and optional device state
+        # Use Python to properly merge JSON objects and optional device state.
+        # Fetch wifi_ssid inside Python so it works when monitor runs under systemd
+        # (iwgetid -r from the shell can return empty there).
         body=$(python3 <<EOF
 import json
 import os
+import subprocess
 logs = """$logs"""
 metrics_json = '''$metrics'''
 metrics = json.loads(metrics_json)
 data = {"logs": logs, "metrics": metrics}
 if os.environ.get("FW_VER"):
     data["firmware_version"] = os.environ["FW_VER"]
-if os.environ.get("WIFI_SSID"):
-    data["wifi_ssid"] = os.environ["WIFI_SSID"]
+try:
+    r = subprocess.run(["iwgetid", "-r"], capture_output=True, text=True, timeout=5)
+    wifi_ssid = (r.stdout or "").strip()
+    if wifi_ssid:
+        data["wifi_ssid"] = wifi_ssid
+except Exception:
+    wifi_ssid = ""
 vol = os.environ.get("VOLUME")
 if vol and str(vol).isdigit():
     v = int(vol)
     if 0 <= v <= 100:
         data["volume"] = v
+import sys
+print("[device-monitor] device_heartbeat_state firmware_version=%s wifi_ssid=%s volume=%s" % (
+    os.environ.get("FW_VER") or "(none)",
+    wifi_ssid if wifi_ssid else "(none)",
+    vol if vol else "(none)",
+), file=sys.stderr)
 print(json.dumps(data))
 EOF
         )
