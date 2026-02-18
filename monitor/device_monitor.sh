@@ -333,24 +333,22 @@ metrics = json.loads(metrics_json)
 data = {"logs": logs, "metrics": metrics}
 if os.environ.get("FW_VER"):
     data["firmware_version"] = os.environ["FW_VER"]
-try:
-    r = subprocess.run(["iwgetid", "-r"], capture_output=True, text=True, timeout=5)
-    wifi_ssid = (r.stdout or "").strip()
-    if wifi_ssid:
-        data["wifi_ssid"] = wifi_ssid
-except Exception:
-    wifi_ssid = ""
+wifi_ssid = ""
+for iwgetid_cmd in ["/usr/sbin/iwgetid", "/sbin/iwgetid", "iwgetid"]:
+    try:
+        r = subprocess.run([iwgetid_cmd, "-r"], capture_output=True, text=True, timeout=5)
+        if r.returncode == 0 and (r.stdout or "").strip():
+            wifi_ssid = (r.stdout or "").strip()
+            break
+    except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+        continue
+if wifi_ssid:
+    data["wifi_ssid"] = wifi_ssid
 vol = os.environ.get("VOLUME")
 if vol and str(vol).isdigit():
     v = int(vol)
     if 0 <= v <= 100:
         data["volume"] = v
-import sys
-print("[device-monitor] device_heartbeat_state firmware_version=%s wifi_ssid=%s volume=%s" % (
-    os.environ.get("FW_VER") or "(none)",
-    wifi_ssid if wifi_ssid else "(none)",
-    vol if vol else "(none)",
-), file=sys.stderr)
 print(json.dumps(data))
 EOF
         )
