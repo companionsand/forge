@@ -300,17 +300,45 @@ send_heartbeat() {
         
         # Also collect metrics when sending logs (every 60 seconds)
         metrics=$(collect_metrics)
+
+        # Device state for heartbeat: firmware, wifi SSID, volume
+        firmware_version=$(cd "$CLIENT_DIR" 2>/dev/null && python3 -c "from version import __version__; print(__version__)" 2>/dev/null)
+        wifi_ssid=$(iwgetid -r 2>/dev/null)
+        # Volume: read Softvol (same control set via WebSocket from conv orchestrator / provision)
+        volume=""
+        if command -v amixer >/dev/null 2>&1; then
+            for card in 0 1 2 3 4 5; do
+                vol_line=$(amixer -c "$card" sget Softvol 2>/dev/null | grep -o '\[[0-9]*%\]' | head -1 | tr -d '[]%')
+                if [ -n "$vol_line" ] && [ "$vol_line" -ge 0 ] 2>/dev/null && [ "$vol_line" -le 100 ] 2>/dev/null; then
+                    volume="$vol_line"
+                    break
+                fi
+            done
+        fi
+        export FW_VER="$firmware_version"
+        export WIFI_SSID="$wifi_ssid"
+        export VOLUME="$volume"
     fi
     
     local body
     if [ -n "$logs" ] && [ -n "$metrics" ]; then
-        # Use Python to properly merge JSON objects
+        # Use Python to properly merge JSON objects and optional device state
         body=$(python3 <<EOF
 import json
+import os
 logs = """$logs"""
 metrics_json = '''$metrics'''
 metrics = json.loads(metrics_json)
 data = {"logs": logs, "metrics": metrics}
+if os.environ.get("FW_VER"):
+    data["firmware_version"] = os.environ["FW_VER"]
+if os.environ.get("WIFI_SSID"):
+    data["wifi_ssid"] = os.environ["WIFI_SSID"]
+vol = os.environ.get("VOLUME")
+if vol and str(vol).isdigit():
+    v = int(vol)
+    if 0 <= v <= 100:
+        data["volume"] = v
 print(json.dumps(data))
 EOF
         )
