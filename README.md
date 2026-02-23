@@ -75,7 +75,7 @@ raspberry-pi-client-wrapper/
 
    - Go to Device Management → Unregistered Devices
    - Click "Provision New Device"
-   - Enter device name, serial number, and Picovoice key
+   - Enter device name and serial number
    - Download installer package (zip file)
 
 2. **Copy to Raspberry Pi**:
