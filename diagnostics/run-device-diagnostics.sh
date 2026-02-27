@@ -73,6 +73,7 @@ sudo systemd-run \
     --property=User="$SERVICE_USER" \
     --property=WorkingDirectory="$CLIENT_DIR" \
     --property=EnvironmentFile=/etc/default/agent-launcher \
+    --property=Environment="PYTHONPATH=$CLIENT_DIR" \
     --property=TimeoutStartSec="${DIAG_TIMEOUT_SECONDS}" \
     "$VENV_PYTHON" \
     "$CLIENT_DIR/diagnostics/device_diagnostics.py" \
