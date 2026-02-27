@@ -276,6 +276,34 @@ git clone https://github.com/respeaker/usb_4_mic_array.git
 
 ## Manual Operations
 
+### Run Device Diagnostics
+
+Run active diagnostics in a service-like environment (transient systemd unit):
+
+```bash
+cd ~/raspberry-pi-client-wrapper
+bash diagnostics/run-device-diagnostics.sh
+```
+
+Behavior:
+
+- Stops `agent-launcher` (if currently active)
+- Sleeps between stop -> run -> restart steps
+- Runs diagnostics using `systemd-run --wait --collect`
+- Restarts `agent-launcher` automatically on exit (including failures)
+
+Optional tuning:
+
+```bash
+# Increase inter-step sleep and timeout (seconds)
+SLEEP_BETWEEN_STEPS=5 DIAG_TIMEOUT_SECONDS=180 \
+bash diagnostics/run-device-diagnostics.sh --strict
+```
+
+Reports are written to:
+
+- `~/raspberry-pi-client-wrapper/diagnostics/reports/device-diag-<timestamp>.json`
+
 ### Manually Update Code
 
 ```bash
