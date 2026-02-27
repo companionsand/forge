@@ -67,6 +67,7 @@ echo "[INFO] JSON report will be written to: ${JSON_REPORT}"
 
 sudo systemd-run \
     --wait \
+    --pipe \
     --collect \
     --unit "$UNIT_NAME" \
     --service-type=oneshot \
