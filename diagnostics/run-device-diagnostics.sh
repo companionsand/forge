@@ -65,9 +65,9 @@ fi
 echo "[INFO] Running diagnostics in transient systemd unit: ${UNIT_NAME}"
 echo "[INFO] JSON report will be written to: ${JSON_REPORT}"
 
-sudo systemd-run \
+if sudo systemd-run \
+    --quiet \
     --wait \
-    --pipe \
     --collect \
     --unit "$UNIT_NAME" \
     --service-type=oneshot \
@@ -79,7 +79,18 @@ sudo systemd-run \
     "$VENV_PYTHON" \
     "$CLIENT_DIR/diagnostics/device_diagnostics.py" \
     --json-out "$JSON_REPORT" \
-    "$@"
+    "$@"; then
+    UNIT_EXIT_CODE=0
+else
+    UNIT_EXIT_CODE=$?
+fi
+
+# Print only diagnostics logs (suppress systemd-run status chatter).
+sudo journalctl -u "${UNIT_NAME}.service" -o cat --no-pager || true
+
+if [ "$UNIT_EXIT_CODE" -ne 0 ]; then
+    exit "$UNIT_EXIT_CODE"
+fi
 
 echo "[INFO] Diagnostics completed."
 echo "[INFO] Report: $JSON_REPORT"
