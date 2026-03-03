@@ -27,6 +27,10 @@ log_success() {
     echo "$LOG_PREFIX [SUCCESS] $1"
 }
 
+log_warn() {
+    echo "$LOG_PREFIX [WARN] $1"
+}
+
 # Load wrapper .env file if it exists (for GIT_BRANCH configuration)
 if [ -f "$WRAPPER_DIR/.env" ]; then
     set -a  # Export all variables
@@ -41,6 +45,33 @@ GIT_BRANCH=${GIT_BRANCH:-"main"}
 cd "$WRAPPER_DIR"
 
 log_info "Starting Kin AI Agent Launcher..."
+
+# Step 0: Enforce BLE adapter no-pairing policy before Python starts.
+# This avoids runtime delays/timeouts in the app process and makes behavior
+# deterministic across reboots/new devices.
+log_info "Applying BLE no-pairing settings on hci0..."
+if command -v btmgmt >/dev/null 2>&1; then
+    timeout 6s sudo btmgmt -i hci0 power off >/dev/null 2>&1 || true
+    timeout 6s sudo btmgmt -i hci0 bondable off >/dev/null 2>&1 || true
+    timeout 6s sudo btmgmt -i hci0 pairable off >/dev/null 2>&1 || true
+    timeout 6s sudo btmgmt -i hci0 io-cap 3 >/dev/null 2>&1 || true
+    timeout 6s sudo btmgmt -i hci0 connectable on >/dev/null 2>&1 || true
+    timeout 6s sudo btmgmt -i hci0 power on >/dev/null 2>&1 || true
+
+    # Verify effective settings (best effort, non-blocking).
+    BTMGMT_INFO="$(timeout 6s sudo btmgmt -i hci0 info 2>/dev/null || true)"
+    if echo "$BTMGMT_INFO" | grep -qi "bondable" && echo "$BTMGMT_INFO" | grep -qi "current settings"; then
+        if echo "$BTMGMT_INFO" | grep -qi "current settings:.*bondable"; then
+            log_warn "BLE verification: hci0 still reports bondable in current settings"
+        else
+            log_success "BLE verification: hci0 no-pairing settings applied"
+        fi
+    else
+        log_warn "BLE verification: could not read btmgmt info (continuing)"
+    fi
+else
+    log_warn "btmgmt not found; skipping BLE no-pairing preflight"
+fi
 
 # Step 1: Check internet connection (brief check only)
 # WiFi setup is now handled in the Python client (main.py)
