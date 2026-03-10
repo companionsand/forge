@@ -12,6 +12,7 @@ WRAPPER_DIR="$SCRIPT_DIR"
 CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
 VENV_DIR="$CLIENT_DIR/venv"
 GIT_REPO_URL="git@github.com:companionsand/raspberry-pi-client.git"  # SSH URL (requires deploy key)
+DAVOICE_WHEEL_URL="https://github.com/frymanofer/Python_WakeWordDetection/raw/main/dist/keyword_detection_lib-2.0.3-cp313-none-manylinux2014_aarch64.whl"
 
 # Colors for output
 RED='\033[0;31m'
@@ -34,6 +35,40 @@ log_warning() {
 
 log_error() {
     echo -e "${RED}[ERROR] $1${NC}"
+}
+
+verify_davoice_sdk() {
+    python -c "import pkg_resources; from keyword_detection import KeywordDetection" >/dev/null 2>&1
+}
+
+install_davoice_sdk_best_effort() {
+    if verify_davoice_sdk; then
+        log_success "DaVoice SDK already available"
+        return 0
+    fi
+
+    log_info "Installing DaVoice SDK (best effort)..."
+
+    if python -m pip install --force-reinstall "setuptools<82" -q; then
+        log_success "Pinned setuptools for DaVoice compatibility"
+    else
+        log_warning "Could not pin setuptools<82 for DaVoice compatibility"
+    fi
+
+    if python -m pip install --force-reinstall "$DAVOICE_WHEEL_URL" -q; then
+        log_success "DaVoice SDK installed"
+    else
+        log_warning "Could not install DaVoice SDK wheel"
+        return 0
+    fi
+
+    if verify_davoice_sdk; then
+        log_success "DaVoice SDK verified"
+    else
+        log_warning "DaVoice SDK import verification failed (client will fall back to OpenWakeWord)"
+    fi
+
+    return 0
 }
 
 # Load .env file if it exists
@@ -556,6 +591,8 @@ if [ -f "$CLIENT_DIR/requirements.txt" ]; then
     log_info "Installing openwakeword (no-deps)..."
     pip install --no-deps "openwakeword>=0.6.0" -q
     log_success "openwakeword installed"
+
+    install_davoice_sdk_best_effort
 else
     log_warning "requirements.txt not found, skipping..."
 fi

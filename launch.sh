@@ -12,6 +12,7 @@ WRAPPER_DIR="$SCRIPT_DIR"
 CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
 VENV_DIR="$CLIENT_DIR/venv"
 GIT_REPO_URL="git@github.com:companionsand/raspberry-pi-client.git"  # SSH URL (requires deploy key)
+DAVOICE_WHEEL_URL="https://github.com/frymanofer/Python_WakeWordDetection/raw/main/dist/keyword_detection_lib-2.0.3-cp313-none-manylinux2014_aarch64.whl"
 
 # Logging
 LOG_PREFIX="[agent-launcher]"
@@ -29,6 +30,40 @@ log_success() {
 
 log_warn() {
     echo "$LOG_PREFIX [WARN] $1"
+}
+
+verify_davoice_sdk() {
+    python -c "import pkg_resources; from keyword_detection import KeywordDetection" >/dev/null 2>&1
+}
+
+install_davoice_sdk_best_effort() {
+    if verify_davoice_sdk; then
+        log_success "DaVoice SDK already available"
+        return 0
+    fi
+
+    log_info "Installing DaVoice SDK (best effort)..."
+
+    if python -m pip install --force-reinstall "setuptools<82" -q 2>/dev/null; then
+        log_success "Pinned setuptools for DaVoice compatibility"
+    else
+        log_warn "Could not pin setuptools<82 for DaVoice compatibility"
+    fi
+
+    if python -m pip install --force-reinstall "$DAVOICE_WHEEL_URL" -q 2>/dev/null; then
+        log_success "DaVoice SDK installed"
+    else
+        log_warn "Could not install DaVoice SDK wheel (client may fall back to OpenWakeWord)"
+        return 0
+    fi
+
+    if verify_davoice_sdk; then
+        log_success "DaVoice SDK verified"
+    else
+        log_warn "DaVoice SDK import verification failed (client may fall back to OpenWakeWord)"
+    fi
+
+    return 0
 }
 
 # Load wrapper .env file if it exists (for GIT_BRANCH configuration)
@@ -200,6 +235,8 @@ else
     log_error "requirements.txt not found in $CLIENT_DIR"
     exit 1
 fi
+
+install_davoice_sdk_best_effort
 
 # Ensure ffmpeg is available (for family voice message playback - decode webm/mp3)
 if ! command -v ffmpeg &>/dev/null; then
@@ -449,6 +486,7 @@ while true; do
                 pip install -r requirements.txt -q 2>/dev/null || log_info "Could not update requirements"
                 # Reinstall openwakeword with --no-deps (see requirements.txt comment)
                 pip install --no-deps "openwakeword>=0.6.0" -q 2>/dev/null || true
+                install_davoice_sdk_best_effort
                 log_success "Updates applied"
             else
                 log_info "Already up to date"
