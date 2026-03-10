@@ -50,7 +50,7 @@ install_davoice_sdk_best_effort() {
         log_warn "Could not pin setuptools<82 for DaVoice compatibility"
     fi
 
-    if python -m pip install --force-reinstall "$DAVOICE_WHEEL_URL" -q 2>/dev/null; then
+    if python -m pip install --force-reinstall --no-deps "$DAVOICE_WHEEL_URL" -q 2>/dev/null; then
         log_success "DaVoice SDK installed"
     else
         log_warn "Could not install DaVoice SDK wheel (client may fall back to OpenWakeWord)"

@@ -55,7 +55,7 @@ install_davoice_sdk_best_effort() {
         log_warning "Could not pin setuptools<82 for DaVoice compatibility"
     fi
 
-    if python -m pip install --force-reinstall "$DAVOICE_WHEEL_URL" -q; then
+    if python -m pip install --force-reinstall --no-deps "$DAVOICE_WHEEL_URL" -q; then
         log_success "DaVoice SDK installed"
     else
         log_warning "Could not install DaVoice SDK wheel"
