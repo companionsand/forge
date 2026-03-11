@@ -76,6 +76,7 @@ fi
 # Set Git branch (from .env or default to main)
 GIT_BRANCH=${GIT_BRANCH:-"main"}
 BLE_DISCRIMINATOR=${BLE_DISCRIMINATOR:-""}
+BLE_NAME="Olympia_${BLE_DISCRIMINATOR:-SETUP}"
 
 # Change to wrapper directory
 cd "$WRAPPER_DIR"
@@ -88,6 +89,7 @@ log_info "Starting Kin AI Agent Launcher..."
 log_info "Applying BLE no-pairing settings on hci0..."
 if command -v btmgmt >/dev/null 2>&1; then
     timeout 6s sudo btmgmt -i hci0 power off >/dev/null 2>&1 || true
+    timeout 6s sudo btmgmt -i hci0 name "$BLE_NAME" >/dev/null 2>&1 || true
     timeout 6s sudo btmgmt -i hci0 bondable off >/dev/null 2>&1 || true
     timeout 6s sudo btmgmt -i hci0 pairable off >/dev/null 2>&1 || true
     timeout 6s sudo btmgmt -i hci0 io-cap 3 >/dev/null 2>&1 || true
