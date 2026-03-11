@@ -292,6 +292,8 @@ send_heartbeat() {
     local include_logs=$1
     local logs=""
     local metrics=""
+    local firmware_version=""
+    local volume=""
     
     if [ "$include_logs" = "true" ]; then
         logs=$(get_logs | python3 -c "import sys, json; print(json.dumps(sys.stdin.read()))" 2>/dev/null)
@@ -300,39 +302,41 @@ send_heartbeat() {
         
         # Also collect metrics when sending logs (every 60 seconds)
         metrics=$(collect_metrics)
+    fi
 
-        # Device state for heartbeat: firmware, wifi SSID, volume
+    # Device state for heartbeat: volume every 10s, firmware on log heartbeats.
+    if command -v amixer >/dev/null 2>&1; then
+        for card in 0 1 2 3 4 5; do
+            vol_line=$(amixer -c "$card" sget Softvol 2>/dev/null | grep -o '\[[0-9]*%\]' | head -1 | tr -d '[]%')
+            if [ -n "$vol_line" ] && [ "$vol_line" -ge 0 ] 2>/dev/null && [ "$vol_line" -le 100 ] 2>/dev/null; then
+                volume="$vol_line"
+                break
+            fi
+        done
+    fi
+
+    if [ "$include_logs" = "true" ]; then
         firmware_version=$(cd "$CLIENT_DIR" 2>/dev/null && python3 -c "from version import __version__; print(__version__)" 2>/dev/null)
-        # Volume: read Softvol (same control set via WebSocket from conv orchestrator / provision)
-        volume=""
-        if command -v amixer >/dev/null 2>&1; then
-            for card in 0 1 2 3 4 5; do
-                vol_line=$(amixer -c "$card" sget Softvol 2>/dev/null | grep -o '\[[0-9]*%\]' | head -1 | tr -d '[]%')
-                if [ -n "$vol_line" ] && [ "$vol_line" -ge 0 ] 2>/dev/null && [ "$vol_line" -le 100 ] 2>/dev/null; then
-                    volume="$vol_line"
-                    break
-                fi
-            done
-        fi
-        export FW_VER="$firmware_version"
-        export VOLUME="$volume"
     fi
     
     local body
-    if [ -n "$logs" ] && [ -n "$metrics" ]; then
-        # Use Python to properly merge JSON objects and optional device state.
-        # Fetch wifi_ssid inside Python so it works when monitor runs under systemd
-        # (iwgetid -r from the shell can return empty there).
-        body=$(python3 <<EOF
+    # Build heartbeat JSON in Python so wifi_ssid lookup works reliably under systemd.
+    body=$(python3 <<EOF
 import json
-import os
 import subprocess
 logs = """$logs"""
 metrics_json = '''$metrics'''
-metrics = json.loads(metrics_json)
-data = {"logs": logs, "metrics": metrics}
-if os.environ.get("FW_VER"):
-    data["firmware_version"] = os.environ["FW_VER"]
+include_logs = """$include_logs"""
+data = {}
+if include_logs == "true":
+    data["logs"] = logs
+    if metrics_json:
+        try:
+            data["metrics"] = json.loads(metrics_json)
+        except Exception:
+            pass
+    if """$firmware_version""":
+        data["firmware_version"] = """$firmware_version"""
 wifi_ssid = ""
 for iwgetid_cmd in ["/usr/sbin/iwgetid", "/sbin/iwgetid", "iwgetid"]:
     try:
@@ -344,19 +348,14 @@ for iwgetid_cmd in ["/usr/sbin/iwgetid", "/sbin/iwgetid", "iwgetid"]:
         continue
 if wifi_ssid:
     data["wifi_ssid"] = wifi_ssid
-vol = os.environ.get("VOLUME")
+vol = """$volume"""
 if vol and str(vol).isdigit():
     v = int(vol)
     if 0 <= v <= 100:
         data["volume"] = v
 print(json.dumps(data))
 EOF
-        )
-    elif [ -n "$logs" ]; then
-        body="{\"logs\": \"$logs\"}"
-    else
-        body="{}"
-    fi
+    )
     
     local response=$(curl -s -X POST "$ORCHESTRATOR_HTTP_URL/device/heartbeat" \
         -H "Content-Type: application/json" \
