@@ -472,8 +472,9 @@ echo ""
 # Collect configuration from .env (if present) or prompt
 DEVICE_ID_INPUT="${DEVICE_ID:-}"
 DEVICE_PRIVATE_KEY_INPUT="${DEVICE_PRIVATE_KEY:-}"
+BLE_DISCRIMINATOR_INPUT="${BLE_DISCRIMINATOR:-}"
 
-if [ "$USE_ENV_FILE" = true ] && [ -n "$DEVICE_ID_INPUT" ] && [ -n "$DEVICE_PRIVATE_KEY_INPUT" ]; then
+if [ "$USE_ENV_FILE" = true ] && [ -n "$DEVICE_ID_INPUT" ] && [ -n "$DEVICE_PRIVATE_KEY_INPUT" ] && [ -n "$BLE_DISCRIMINATOR_INPUT" ]; then
     log_success "Using device credentials from .env file"
 else
     log_info "Please provide device credentials:"
@@ -493,10 +494,21 @@ else
             read -p "Enter Device Private Key: " DEVICE_PRIVATE_KEY_INPUT
         done
     fi
+
+    if [ -z "$BLE_DISCRIMINATOR_INPUT" ]; then
+        read -p "Enter BLE discriminator (4 uppercase letters/numbers): " BLE_DISCRIMINATOR_INPUT
+        BLE_DISCRIMINATOR_INPUT=$(echo "$BLE_DISCRIMINATOR_INPUT" | tr '[:lower:]' '[:upper:]')
+        while ! [[ "$BLE_DISCRIMINATOR_INPUT" =~ ^[A-Z0-9]{4}$ ]]; do
+            log_error "BLE discriminator must be exactly 4 uppercase letters/numbers"
+            read -p "Enter BLE discriminator (4 uppercase letters/numbers): " BLE_DISCRIMINATOR_INPUT
+            BLE_DISCRIMINATOR_INPUT=$(echo "$BLE_DISCRIMINATOR_INPUT" | tr '[:lower:]' '[:upper:]')
+        done
+    fi
 fi
 
 log_success "Device credentials configured"
 echo "  Device ID: $DEVICE_ID_INPUT"
+echo "  BLE Name: Olympia_$BLE_DISCRIMINATOR_INPUT"
 echo ""
 
 # Step 2c: Fetch deploy key for private repository access
@@ -628,6 +640,7 @@ fi
 
 log_success "Configuration details captured"
 echo "  Device ID: $DEVICE_ID_INPUT"
+echo "  BLE Name: Olympia_$BLE_DISCRIMINATOR_INPUT"
 echo "  OTEL Endpoint: $OTEL_ENDPOINT_INPUT"
 echo "  Environment: $ENV_INPUT"
 echo ""
@@ -649,6 +662,7 @@ if [ ! -f "$CLIENT_DIR/.env" ]; then
 # Device Credentials (REQUIRED)
 DEVICE_ID=$DEVICE_ID_INPUT
 DEVICE_PRIVATE_KEY=$DEVICE_PRIVATE_KEY_INPUT
+BLE_DISCRIMINATOR=$BLE_DISCRIMINATOR_INPUT
 
 # OpenTelemetry (configured via wrapper)
 OTEL_ENABLED=true

@@ -75,6 +75,7 @@ fi
 
 # Set Git branch (from .env or default to main)
 GIT_BRANCH=${GIT_BRANCH:-"main"}
+BLE_DISCRIMINATOR=${BLE_DISCRIMINATOR:-""}
 
 # Change to wrapper directory
 cd "$WRAPPER_DIR"
@@ -148,6 +149,16 @@ if [ -f "$WRAPPER_DIR/github/fetch_deploy_key.sh" ]; then
     else
         log_info "Deploy key already configured"
     fi
+fi
+
+# Keep BLE discriminator synced from wrapper env into client env when available.
+if [ -n "$BLE_DISCRIMINATOR" ] && [ -f "$CLIENT_DIR/.env" ]; then
+    if grep -q "^BLE_DISCRIMINATOR=" "$CLIENT_DIR/.env"; then
+        sed -i.bak "s/^BLE_DISCRIMINATOR=.*/BLE_DISCRIMINATOR=$BLE_DISCRIMINATOR/" "$CLIENT_DIR/.env" && rm -f "$CLIENT_DIR/.env.bak"
+    else
+        printf '\nBLE_DISCRIMINATOR=%s\n' "$BLE_DISCRIMINATOR" >> "$CLIENT_DIR/.env"
+    fi
+    log_info "BLE discriminator synced to client env (Olympia_$BLE_DISCRIMINATOR)"
 fi
 
 # Step 3: Check if git repo exists
