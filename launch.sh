@@ -32,6 +32,96 @@ log_warn() {
     echo "$LOG_PREFIX [WARN] $1"
 }
 
+resolve_bluetoothd_path() {
+    local candidate
+    for candidate in \
+        "$(command -v bluetoothd 2>/dev/null)" \
+        "/usr/libexec/bluetooth/bluetoothd" \
+        "/usr/lib/bluetooth/bluetoothd" \
+        "/usr/sbin/bluetoothd"
+    do
+        if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+ensure_bluetoothd_battery_plugin_disabled() {
+    local bluetoothd_path override_dir override_file override_content existing_content
+
+    bluetoothd_path="$(resolve_bluetoothd_path || true)"
+    if [ -z "$bluetoothd_path" ]; then
+        log_warn "Could not find bluetoothd binary; skipping battery-plugin override"
+        return 0
+    fi
+
+    override_dir="/etc/systemd/system/bluetooth.service.d"
+    override_file="$override_dir/override.conf"
+    override_content="[Service]
+ExecStart=
+ExecStart=$bluetoothd_path -P battery"
+    existing_content="$(sudo sh -c "cat '$override_file' 2>/dev/null" || true)"
+
+    if [ "$existing_content" = "$override_content" ]; then
+        log_info "BlueZ battery plugin already disabled"
+        return 0
+    fi
+
+    log_info "Disabling BlueZ battery plugin to reduce iPhone pairing prompts..."
+    sudo mkdir -p "$override_dir"
+    printf '%s\n' "$override_content" | sudo tee "$override_file" > /dev/null
+    sudo systemctl daemon-reload
+    sudo systemctl restart bluetooth
+    sleep 2
+    log_success "BlueZ battery plugin disabled"
+}
+
+BT_AGENT_PID=""
+BT_AGENT_STDIN_FD=""
+
+stop_bluetooth_noinput_agent() {
+    if [ -n "${BT_AGENT_STDIN_FD:-}" ]; then
+        eval "exec ${BT_AGENT_STDIN_FD}>&-"
+        BT_AGENT_STDIN_FD=""
+    fi
+    if [ -n "${BT_AGENT_PID:-}" ] && kill -0 "$BT_AGENT_PID" 2>/dev/null; then
+        kill "$BT_AGENT_PID" 2>/dev/null || true
+        wait "$BT_AGENT_PID" 2>/dev/null || true
+    fi
+    BT_AGENT_PID=""
+}
+
+ensure_bluetooth_noinput_agent() {
+    if ! command -v bluetoothctl >/dev/null 2>&1; then
+        log_warn "bluetoothctl not found; skipping persistent NoInputNoOutput agent"
+        return 0
+    fi
+
+    if [ -n "${BT_AGENT_PID:-}" ] && kill -0 "$BT_AGENT_PID" 2>/dev/null; then
+        return 0
+    fi
+
+    log_info "Starting persistent BlueZ NoInputNoOutput agent..."
+    coproc BT_AGENT_PROC { sudo bluetoothctl >/dev/null 2>&1; }
+    BT_AGENT_PID=$BT_AGENT_PROC_PID
+    BT_AGENT_STDIN_FD=${BT_AGENT_PROC[1]}
+    sleep 1
+
+    if ! kill -0 "$BT_AGENT_PID" 2>/dev/null; then
+        log_warn "Could not start bluetoothctl agent session"
+        BT_AGENT_PID=""
+        BT_AGENT_STDIN_FD=""
+        return 0
+    fi
+
+    printf 'agent NoInputNoOutput\ndefault-agent\npairable off\ndiscoverable on\n' >&$BT_AGENT_STDIN_FD || true
+    log_success "BlueZ NoInputNoOutput agent registered"
+}
+
+trap stop_bluetooth_noinput_agent EXIT
+
 verify_davoice_sdk() {
     python -c "import pkg_resources; from keyword_detection import KeywordDetection" >/dev/null 2>&1
 }
@@ -86,6 +176,7 @@ log_info "Starting Kin AI Agent Launcher..."
 # Step 0: Enforce BLE adapter no-pairing policy before Python starts.
 # This avoids runtime delays/timeouts in the app process and makes behavior
 # deterministic across reboots/new devices.
+ensure_bluetoothd_battery_plugin_disabled
 log_info "Applying BLE no-pairing settings on hci0..."
 if command -v btmgmt >/dev/null 2>&1; then
     timeout 6s sudo btmgmt -i hci0 power off >/dev/null 2>&1 || true
@@ -110,6 +201,7 @@ if command -v btmgmt >/dev/null 2>&1; then
 else
     log_warn "btmgmt not found; skipping BLE no-pairing preflight"
 fi
+ensure_bluetooth_noinput_agent
 
 # Step 1: Check internet connection (brief check only)
 # WiFi setup is now handled in the Python client (main.py)
@@ -412,6 +504,7 @@ check_idle_time() {
 
 # Run main.py in a loop with idle-time monitoring
 while true; do
+    ensure_bluetooth_noinput_agent
     log_info "Starting main.py..."
     
     # Initialize activity file

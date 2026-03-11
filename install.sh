@@ -37,6 +37,51 @@ log_error() {
     echo -e "${RED}[ERROR] $1${NC}"
 }
 
+resolve_bluetoothd_path() {
+    local candidate
+    for candidate in \
+        "$(command -v bluetoothd 2>/dev/null)" \
+        "/usr/libexec/bluetooth/bluetoothd" \
+        "/usr/lib/bluetooth/bluetoothd" \
+        "/usr/sbin/bluetoothd"
+    do
+        if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+configure_bluetoothd_battery_override() {
+    local bluetoothd_path override_dir override_file override_content existing_content
+
+    bluetoothd_path="$(resolve_bluetoothd_path || true)"
+    if [ -z "$bluetoothd_path" ]; then
+        log_warning "Could not find bluetoothd binary; skipping battery-plugin override"
+        return 0
+    fi
+
+    override_dir="/etc/systemd/system/bluetooth.service.d"
+    override_file="$override_dir/override.conf"
+    override_content="[Service]
+ExecStart=
+ExecStart=$bluetoothd_path -P battery"
+    existing_content="$(sudo sh -c "cat '$override_file' 2>/dev/null" || true)"
+
+    if [ "$existing_content" = "$override_content" ]; then
+        log_success "BlueZ battery plugin already disabled"
+        return 0
+    fi
+
+    log_info "Disabling BlueZ battery plugin to reduce iPhone pairing prompts..."
+    sudo mkdir -p "$override_dir"
+    printf '%s\n' "$override_content" | sudo tee "$override_file" > /dev/null
+    sudo systemctl daemon-reload
+    sudo systemctl restart bluetooth
+    log_success "BlueZ battery plugin disabled"
+}
+
 verify_davoice_sdk() {
     python -c "import pkg_resources; from keyword_detection import KeywordDetection" >/dev/null 2>&1
 }
@@ -713,6 +758,8 @@ fi
 
 # Step 9: Setup agent-launcher systemd service
 log_info "Setting up agent-launcher systemd service..."
+
+configure_bluetoothd_battery_override
 
 # Generate environment file used by the systemd service
 AGENT_ENV_FILE="/etc/default/agent-launcher"
