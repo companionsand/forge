@@ -372,6 +372,15 @@ apt_install_robust() {
     sudo apt install -y --fix-missing "$@"
 }
 
+ensure_gpio_system_dependencies() {
+    log_info "Installing GPIO system dependencies for gpiozero/lgpio..."
+    if apt_install_robust python3-lgpio liblgpio-dev; then
+        log_success "GPIO system dependencies installed"
+    else
+        log_warning "Could not install python3-lgpio/liblgpio-dev (GPIO output may be unavailable)"
+    fi
+}
+
 if ! apt_install_robust \
     python3-pip python3-venv portaudio19-dev python3-pyaudio alsa-utils \
     dnsutils bind9-host network-manager wireless-tools \
@@ -397,6 +406,8 @@ if ! apt_install_robust ffmpeg; then
 fi
 
 log_success "System dependencies installed"
+
+ensure_gpio_system_dependencies
 
 # Step 2: Ensure ALSA-only audio (disable PipeWire and PulseAudio if present)
 log_info "Ensuring ALSA-only audio configuration..."

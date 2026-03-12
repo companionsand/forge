@@ -32,6 +32,15 @@ log_warn() {
     echo "$LOG_PREFIX [WARN] $1"
 }
 
+ensure_gpio_system_dependencies() {
+    log_info "Ensuring GPIO system dependencies are installed..."
+    if sudo apt-get update -qq 2>/dev/null && sudo apt-get install -y -qq python3-lgpio liblgpio-dev 2>/dev/null; then
+        log_success "GPIO system dependencies ready"
+    else
+        log_warn "Could not install python3-lgpio/liblgpio-dev (continuing with cached environment)"
+    fi
+}
+
 resolve_bluetoothd_path() {
     local candidate
     for candidate in \
@@ -324,6 +333,9 @@ log_success "Virtual environment activated"
 
 # Ensure Python logs are flushed immediately so journald sees them
 export PYTHONUNBUFFERED=1
+
+# Ensure lgpio system libraries exist before installing Python requirements
+ensure_gpio_system_dependencies
 
 # Step 4: Install/update requirements
 log_info "Installing Python requirements..."
