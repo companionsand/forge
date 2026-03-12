@@ -374,7 +374,7 @@ apt_install_robust() {
 
 if ! apt_install_robust \
     python3-pip python3-venv portaudio19-dev python3-pyaudio alsa-utils \
-    hostapd dnsmasq dnsutils bind9-host network-manager wireless-tools \
+    dnsutils bind9-host network-manager wireless-tools \
     iw rfkill git curl wget python3-cryptography python3-requests; then
     log_error "Failed to install core dependencies. Try: sudo apt update && sudo apt --fix-broken install"
     exit 1
@@ -453,28 +453,17 @@ fi
 
 log_success "ALSA-only audio configuration complete"
 
-# Configure sudoers for WiFi setup (allow pi user to run network commands without password)
-log_info "Configuring sudoers for WiFi setup..."
+# Configure sudoers for BLE provisioning network operations
+log_info "Configuring sudoers for network operations..."
 sudo tee /etc/sudoers.d/kin-network > /dev/null <<'EOF'
-# Allow pi user to run network commands without password for WiFi setup
+# Allow pi user to run network commands without password for BLE provisioning
 pi ALL=(ALL) NOPASSWD: /usr/bin/nmcli
-pi ALL=(ALL) NOPASSWD: /usr/bin/systemctl start hostapd
-pi ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop hostapd
-pi ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart hostapd
-pi ALL=(ALL) NOPASSWD: /usr/bin/systemctl unmask hostapd
-pi ALL=(ALL) NOPASSWD: /usr/bin/systemctl mask hostapd
-pi ALL=(ALL) NOPASSWD: /usr/bin/systemctl start dnsmasq
-pi ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop dnsmasq
-pi ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart dnsmasq
-pi ALL=(ALL) NOPASSWD: /usr/bin/systemctl unmask dnsmasq
-pi ALL=(ALL) NOPASSWD: /usr/bin/systemctl mask dnsmasq
-pi ALL=(ALL) NOPASSWD: /usr/sbin/hostapd
 pi ALL=(ALL) NOPASSWD: /usr/bin/ip
 pi ALL=(ALL) NOPASSWD: /usr/sbin/ip
 pi ALL=(ALL) NOPASSWD: /usr/bin/rfkill
 EOF
 sudo chmod 0440 /etc/sudoers.d/kin-network
-log_success "Sudoers configured for WiFi setup"
+log_success "Sudoers configured for network operations"
 
 # Setup udev rules for ReSpeaker LED access
 log_info "Setting up udev rules for ReSpeaker LED control..."
@@ -899,8 +888,8 @@ verify_installation() {
         echo ""
         
         log_warning "Service will continue running despite verification issues."
-        log_info "This is normal for unpaired devices - setup mode will handle pairing."
-        log_info "If the device is unpaired, it will enter setup mode and create a WiFi hotspot."
+        log_info "This is normal for unpaired or offline devices while BLE provisioning is available."
+        log_info "If the device is unpaired or has no internet, it will remain available over Bluetooth for setup."
         log_info "Review logs above to ensure issues are expected."
         echo ""
         log_info "If you encounter persistent problems, you can:"
@@ -909,7 +898,7 @@ verify_installation() {
         log_info "  - Reinstall: ./uninstall.sh followed by ./install.sh"
         echo ""
         
-        # Don't stop the service - let it continue running for setup mode
+        # Don't stop the service - let it continue running for BLE provisioning
         return 0
     fi
     

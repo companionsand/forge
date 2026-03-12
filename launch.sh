@@ -80,10 +80,11 @@ ExecStart=$bluetoothd_path -P battery"
 
 BT_AGENT_PID=""
 BT_AGENT_STDIN_FD=""
+BT_AGENT_FIFO=""
 
 stop_bluetooth_noinput_agent() {
     if [ -n "${BT_AGENT_STDIN_FD:-}" ]; then
-        eval "exec ${BT_AGENT_STDIN_FD}>&-"
+        exec 3>&-
         BT_AGENT_STDIN_FD=""
     fi
     if [ -n "${BT_AGENT_PID:-}" ] && kill -0 "$BT_AGENT_PID" 2>/dev/null; then
@@ -91,6 +92,10 @@ stop_bluetooth_noinput_agent() {
         wait "$BT_AGENT_PID" 2>/dev/null || true
     fi
     BT_AGENT_PID=""
+    if [ -n "${BT_AGENT_FIFO:-}" ] && [ -p "$BT_AGENT_FIFO" ]; then
+        rm -f "$BT_AGENT_FIFO"
+    fi
+    BT_AGENT_FIFO=""
 }
 
 ensure_bluetooth_noinput_agent() {
@@ -104,19 +109,25 @@ ensure_bluetooth_noinput_agent() {
     fi
 
     log_info "Starting persistent BlueZ NoInputNoOutput agent..."
-    coproc BT_AGENT_PROC { sudo bluetoothctl >/dev/null 2>&1; }
-    BT_AGENT_PID=$BT_AGENT_PROC_PID
-    BT_AGENT_STDIN_FD=${BT_AGENT_PROC[1]}
+    BT_AGENT_FIFO="$(mktemp -u "${TMPDIR:-/tmp}/kin-bt-agent.XXXXXX")"
+    mkfifo "$BT_AGENT_FIFO"
+    sudo bluetoothctl < "$BT_AGENT_FIFO" >/dev/null 2>&1 &
+    BT_AGENT_PID=$!
+    exec 3>"$BT_AGENT_FIFO"
+    BT_AGENT_STDIN_FD="3"
     sleep 1
 
     if ! kill -0 "$BT_AGENT_PID" 2>/dev/null; then
         log_warn "Could not start bluetoothctl agent session"
+        exec 3>&-
         BT_AGENT_PID=""
         BT_AGENT_STDIN_FD=""
+        rm -f "$BT_AGENT_FIFO"
+        BT_AGENT_FIFO=""
         return 0
     fi
 
-    printf 'agent NoInputNoOutput\ndefault-agent\npairable off\ndiscoverable on\n' >&$BT_AGENT_STDIN_FD || true
+    printf 'agent NoInputNoOutput\ndefault-agent\npairable off\ndiscoverable on\n' >&3 || true
     log_success "BlueZ NoInputNoOutput agent registered"
 }
 
@@ -204,12 +215,12 @@ fi
 ensure_bluetooth_noinput_agent
 
 # Step 1: Check internet connection (brief check only)
-# WiFi setup is now handled in the Python client (main.py)
+# BLE provisioning is handled in the Python client (main.py)
 log_info "Checking internet connection..."
 if ping -c 1 -W 2 8.8.8.8 &> /dev/null; then
     log_success "Internet connection established"
 else
-    log_info "No internet connection - main.py will handle WiFi setup if enabled"
+    log_info "No internet connection - main.py will remain available for BLE provisioning"
 fi
 
 # Step 2: Ensure deploy key is set up (for private repository access)
@@ -379,47 +390,7 @@ fi
 # Note: ReSpeaker is now initialized by the Python client (main.py)
 # This allows ReSpeaker settings to be updated via OTA without wrapper changes
 
-# Step 8: Fix WiFi AP conflicts (dnsmasq)
-log_info "Checking for WiFi access point conflicts..."
-
-# Check if WiFi setup is enabled
-SKIP_WIFI_SETUP=$(grep -E "^SKIP_WIFI_SETUP=" "$CLIENT_DIR/.env" 2>/dev/null | cut -d'=' -f2 | tr -d ' "'"'" || echo "false")
-if [ "$SKIP_WIFI_SETUP" != "true" ]; then
-    log_info "WiFi setup enabled - checking for dnsmasq conflicts..."
-    
-    # Check if system dnsmasq service is enabled/running
-    if systemctl is-active --quiet dnsmasq 2>/dev/null; then
-        log_info "System dnsmasq service detected - disabling to avoid conflicts..."
-        
-        # Stop and disable system dnsmasq
-        # NetworkManager will handle DNS/DHCP for the hotspot
-        sudo systemctl stop dnsmasq 2>/dev/null || true
-        sudo systemctl disable dnsmasq 2>/dev/null || true
-        
-        log_success "System dnsmasq service disabled"
-        log_info "NetworkManager will handle DNS/DHCP for WiFi hotspot"
-    else
-        log_info "No system dnsmasq service detected"
-    fi
-    
-    # Clean up any lingering NetworkManager dnsmasq processes
-    sudo pkill -9 -f "dnsmasq.*NetworkManager" 2>/dev/null || true
-    
-    # Clean up any existing Kin hotspot connection
-    sudo nmcli connection down Kin_Hotspot 2>/dev/null || true
-    sudo nmcli connection delete Kin_Hotspot 2>/dev/null || true
-    
-    # Note: We don't flush wlan0 IP addresses here anymore
-    # The WiFi setup code in access_point.py will handle flushing
-    # only when actually entering setup mode, preventing disruption
-    # to an existing working WiFi connection
-    
-    log_success "WiFi AP pre-flight checks complete"
-else
-    log_info "WiFi setup disabled - skipping AP conflict checks"
-fi
-
-# Step 9: Disable WiFi power save for optimal performance
+# Step 8: Disable WiFi power save for optimal performance
 log_info "Disabling WiFi power save for better latency..."
 if sudo iw wlan0 set power_save off 2>/dev/null; then
     log_success "WiFi power save disabled"
@@ -427,7 +398,7 @@ else
     log_info "Could not disable power save (interface may not be up yet)"
 fi
 
-# Step 10: Set CPU to performance mode for audio processing
+# Step 9: Set CPU to performance mode for audio processing
 log_info "Setting CPU to performance mode..."
 if echo 'performance' | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor > /dev/null 2>&1; then
     log_success "CPU performance mode enabled"
@@ -435,7 +406,7 @@ else
     log_info "Could not set CPU performance (may already be set or not supported)"
 fi
 
-# Step 11: Configure TCP keepalives for WebSocket stability
+# Step 10: Configure TCP keepalives for WebSocket stability
 log_info "Configuring TCP keepalives..."
 if sudo sysctl -w net.ipv4.tcp_keepalive_time=60 > /dev/null 2>&1 && \
    sudo sysctl -w net.ipv4.tcp_keepalive_intvl=10 > /dev/null 2>&1 && \
@@ -445,7 +416,7 @@ else
     log_info "Could not configure TCP keepalives"
 fi
 
-# Step 12: Wait for valid system time (NTP sync)
+# Step 11: Wait for valid system time (NTP sync)
 log_info "Waiting for valid system time..."
 WAIT_TIME=0
 MAX_WAIT=120
@@ -542,23 +513,6 @@ while true; do
     else
         log_info "main.py stopped, restarting..."
         sleep 2
-    fi
-    
-    # Before restarting, clean up WiFi AP resources if needed
-    SKIP_WIFI_SETUP=$(grep -E "^SKIP_WIFI_SETUP=" "$CLIENT_DIR/.env" 2>/dev/null | cut -d'=' -f2 | tr -d ' "'"'" || echo "false")
-    if [ "$SKIP_WIFI_SETUP" != "true" ]; then
-        log_info "Cleaning up WiFi AP resources before restart..."
-        
-        # Clean up any lingering NetworkManager dnsmasq processes
-        sudo pkill -9 -f "dnsmasq.*NetworkManager" 2>/dev/null || true
-        
-        # Clean up any existing Kin hotspot connection
-        sudo nmcli connection down Kin_Hotspot 2>/dev/null || true
-        sudo nmcli connection delete Kin_Hotspot 2>/dev/null || true
-        
-        # Note: Not flushing wlan0 IP addresses to preserve working WiFi connection
-        
-        sleep 1
     fi
     
     # Before restarting, pull latest changes from git (if internet available)
