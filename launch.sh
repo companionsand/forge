@@ -243,8 +243,8 @@ if [ -f "$WRAPPER_DIR/github/fetch_deploy_key.sh" ]; then
         
         # Load device credentials from client .env
         if [ -f "$CLIENT_DIR/.env" ]; then
-            DEVICE_ID=$(grep -E "^DEVICE_ID=" "$CLIENT_DIR/.env" 2>/dev/null | cut -d'=' -f2 | tr -d ' "'"'" || echo "")
-            DEVICE_PRIVATE_KEY=$(grep -E "^DEVICE_PRIVATE_KEY=" "$CLIENT_DIR/.env" 2>/dev/null | cut -d'=' -f2 | tr -d ' "'"'" || echo "")
+            DEVICE_ID=$(grep -E "^DEVICE_ID=" "$CLIENT_DIR/.env" 2>/dev/null | cut -d'=' -f2- | tr -d ' "'"'" || echo "")
+            DEVICE_PRIVATE_KEY=$(grep -E "^DEVICE_PRIVATE_KEY=" "$CLIENT_DIR/.env" 2>/dev/null | cut -d'=' -f2- | tr -d ' "'"'" || echo "")
         fi
         
         if [ -n "$DEVICE_ID" ] && [ -n "$DEVICE_PRIVATE_KEY" ]; then
