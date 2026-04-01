@@ -33,6 +33,10 @@ NC='\033[0m' # No Color
 # Configuration
 WRAPPER_DIR="$SCRIPT_DIR"
 CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
+PREVIOUS_CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client.previous"
+VENV_DIR="$WRAPPER_DIR/venv"
+RELEASE_CACHE_DIR="$WRAPPER_DIR/downloads"
+RELEASE_STATE_FILE="$WRAPPER_DIR/.client-release-state.json"
 
 # Logging functions
 log_info() {
@@ -152,12 +156,32 @@ if [ -d "/var/log/otelcol" ]; then
     log_success "Removed /var/log/otelcol directory"
 fi
 
-# Step 6: Remove cloned repository and virtual environment
-log_info "Removing cloned repository..."
+# Step 6: Remove installed client release, virtual environment, and release metadata
+log_info "Removing installed client release..."
 
 if [ -d "$CLIENT_DIR" ]; then
     rm -rf "$CLIENT_DIR"
     log_success "Removed $CLIENT_DIR"
+fi
+
+if [ -d "$PREVIOUS_CLIENT_DIR" ]; then
+    rm -rf "$PREVIOUS_CLIENT_DIR"
+    log_success "Removed $PREVIOUS_CLIENT_DIR"
+fi
+
+if [ -d "$VENV_DIR" ]; then
+    rm -rf "$VENV_DIR"
+    log_success "Removed $VENV_DIR"
+fi
+
+if [ -d "$RELEASE_CACHE_DIR" ]; then
+    rm -rf "$RELEASE_CACHE_DIR"
+    log_success "Removed $RELEASE_CACHE_DIR"
+fi
+
+if [ -f "$RELEASE_STATE_FILE" ]; then
+    rm -f "$RELEASE_STATE_FILE"
+    log_success "Removed $RELEASE_STATE_FILE"
 fi
 
 # Step 7: Ask about removing cached downloads

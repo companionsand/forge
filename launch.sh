@@ -10,8 +10,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 # Configuration
 WRAPPER_DIR="$SCRIPT_DIR"
 CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
-VENV_DIR="$CLIENT_DIR/venv"
-GIT_REPO_URL="git@github.com:companionsand/raspberry-pi-client.git"  # SSH URL (requires deploy key)
+VENV_DIR="$WRAPPER_DIR/venv"
 DAVOICE_WHEEL_URL="https://github.com/frymanofer/Python_WakeWordDetection/raw/main/dist/keyword_detection_lib-2.0.3-cp313-none-manylinux2014_aarch64.whl"
 
 # Logging
@@ -30,6 +29,23 @@ log_success() {
 
 log_warn() {
     echo "$LOG_PREFIX [WARN] $1"
+}
+
+sync_client_release() {
+    if [ ! -f "$WRAPPER_DIR/github/release_manager.py" ]; then
+        log_error "Release manager not found at $WRAPPER_DIR/github/release_manager.py"
+        return 1
+    fi
+
+    local sync_output
+    if ! sync_output=$(python3 "$WRAPPER_DIR/github/release_manager.py" sync --wrapper-dir "$WRAPPER_DIR" 2>&1); then
+        log_warn "Client release sync failed"
+        echo "$sync_output"
+        return 1
+    fi
+
+    echo "$sync_output"
+    return 0
 }
 
 ensure_gpio_system_dependencies() {
@@ -176,15 +192,17 @@ install_davoice_sdk_best_effort() {
     return 0
 }
 
-# Load wrapper .env file if it exists (for GIT_BRANCH configuration)
+# Load wrapper .env file if it exists
 if [ -f "$WRAPPER_DIR/.env" ]; then
     set -a  # Export all variables
     source "$WRAPPER_DIR/.env"
     set +a
 fi
 
-# Set Git branch (from .env or default to main)
-GIT_BRANCH=${GIT_BRANCH:-"main"}
+# Set release defaults
+CLIENT_RELEASE_REPO=${CLIENT_RELEASE_REPO:-"companionsand/raspberry-pi-client"}
+CLIENT_RELEASE_CHANNEL=${CLIENT_RELEASE_CHANNEL:-"production"}
+CLIENT_RELEASE_PLATFORM=${CLIENT_RELEASE_PLATFORM:-"linux-aarch64"}
 BLE_DISCRIMINATOR=${BLE_DISCRIMINATOR:-""}
 BLE_NAME="Olympia_${BLE_DISCRIMINATOR:-SETUP}"
 
@@ -232,36 +250,18 @@ else
     log_info "No internet connection - main.py will remain available for BLE provisioning"
 fi
 
-# Step 2: Ensure deploy key is set up (for private repository access)
-# This is especially important for devices that were provisioned before the repo went private
-if [ -f "$WRAPPER_DIR/github/fetch_deploy_key.sh" ]; then
-    source "$WRAPPER_DIR/github/fetch_deploy_key.sh"
-    
-    # Check if deploy key is already set up
-    if ! has_valid_deploy_key; then
-        log_info "Deploy key not found - fetching from backend..."
-        
-        # Load device credentials from client .env
-        if [ -f "$CLIENT_DIR/.env" ]; then
-            DEVICE_ID=$(grep -E "^DEVICE_ID=" "$CLIENT_DIR/.env" 2>/dev/null | cut -d'=' -f2- | tr -d ' "'"'" || echo "")
-            DEVICE_PRIVATE_KEY=$(grep -E "^DEVICE_PRIVATE_KEY=" "$CLIENT_DIR/.env" 2>/dev/null | cut -d'=' -f2- | tr -d ' "'"'" || echo "")
-        fi
-        
-        if [ -n "$DEVICE_ID" ] && [ -n "$DEVICE_PRIVATE_KEY" ]; then
-            if ping -c 1 -W 2 8.8.8.8 &> /dev/null; then
-                if fetch_and_setup_deploy_key "$DEVICE_ID" "$DEVICE_PRIVATE_KEY"; then
-                    log_success "Deploy key configured"
-                else
-                    log_info "Could not fetch deploy key (will try HTTPS fallback)"
-                fi
-            else
-                log_info "No internet - skipping deploy key fetch"
-            fi
-        else
-            log_info "Device credentials not found - skipping deploy key fetch"
-        fi
+# Step 2: Keep the installed release synced with the configured channel.
+if [ ! -d "$CLIENT_DIR" ]; then
+    log_info "Client release not installed yet; downloading configured release..."
+    if ! sync_client_release; then
+        exit 1
+    fi
+else
+    log_info "Client release found. Checking for updates..."
+    if ping -c 1 -W 2 8.8.8.8 &> /dev/null; then
+        sync_client_release || log_info "Could not update release bundle (using local version)"
     else
-        log_info "Deploy key already configured"
+        log_info "Skipping release check (no internet - will use local version)"
     fi
 fi
 
@@ -273,48 +273,6 @@ if [ -n "$BLE_DISCRIMINATOR" ] && [ -f "$CLIENT_DIR/.env" ]; then
         printf '\nBLE_DISCRIMINATOR=%s\n' "$BLE_DISCRIMINATOR" >> "$CLIENT_DIR/.env"
     fi
     log_info "BLE discriminator synced to client env (Olympia_$BLE_DISCRIMINATOR)"
-fi
-
-# Step 3: Check if git repo exists
-if [ ! -d "$CLIENT_DIR" ]; then
-    log_error "Repository not found at $CLIENT_DIR"
-    log_error "This should not happen - install.sh should have cloned it"
-    log_error "Please run install.sh first or check your installation"
-    exit 1
-else
-    log_info "Repository found. Checking for updates..."
-    
-    # Ensure git safe.directory is configured for root (in case install.sh didn't set it)
-    # This prevents "dubious ownership" errors when service runs as root on kin-owned repos
-    git config --global --add safe.directory "$WRAPPER_DIR" 2>/dev/null || true
-    git config --global --add safe.directory "$CLIENT_DIR" 2>/dev/null || true
-    
-    cd "$CLIENT_DIR"
-    
-    # Ensure we're using SSH remote if deploy key is available
-    if [ -f "$WRAPPER_DIR/github/fetch_deploy_key.sh" ]; then
-        source "$WRAPPER_DIR/github/fetch_deploy_key.sh"
-        if has_valid_deploy_key; then
-            switch_to_ssh_remote "$CLIENT_DIR" 2>/dev/null || true
-        fi
-    fi
-    
-    # Try to pull latest changes (gracefully handle failure if no internet)
-    if ping -c 1 -W 2 8.8.8.8 &> /dev/null; then
-        # Stash any local changes (shouldn't be any, but just in case)
-        git stash --include-untracked 2>/dev/null || true
-        
-        # Fetch and pull latest changes
-        if git fetch origin "$GIT_BRANCH" 2>/dev/null && git reset --hard "origin/$GIT_BRANCH" 2>/dev/null; then
-            log_success "Repository updated to latest commit"
-        else
-            log_info "Could not update repository (using local version)"
-        fi
-    else
-        log_info "Skipping git pull (no internet - will use local version)"
-    fi
-    
-    cd "$WRAPPER_DIR"
 fi
 
 # Step 3: Setup virtual environment
@@ -527,47 +485,20 @@ while true; do
         sleep 2
     fi
     
-    # Before restarting, pull latest changes from git (if internet available)
+    # Before restarting, check for new release artifacts (if internet available)
     if ping -c 1 -W 2 8.8.8.8 &> /dev/null; then
-        log_info "Checking for updates before restart..."
-        
-        # Ensure git safe.directory is configured (prevents "dubious ownership" errors)
-        git config --global --add safe.directory "$WRAPPER_DIR" 2>/dev/null || true
-        git config --global --add safe.directory "$CLIENT_DIR" 2>/dev/null || true
-        
-        cd "$CLIENT_DIR"
-        
-        # Ensure deploy key is set up and remote is SSH
-        if [ -f "$WRAPPER_DIR/github/fetch_deploy_key.sh" ]; then
-            source "$WRAPPER_DIR/github/fetch_deploy_key.sh"
-            if has_valid_deploy_key; then
-                switch_to_ssh_remote "$CLIENT_DIR" 2>/dev/null || true
-            fi
-        fi
-        
-        if git fetch origin "$GIT_BRANCH" 2>/dev/null; then
-            # Check if there are updates
-            LOCAL=$(git rev-parse HEAD 2>/dev/null || echo "")
-            REMOTE=$(git rev-parse "origin/$GIT_BRANCH" 2>/dev/null || echo "")
-            
-            if [ -n "$LOCAL" ] && [ -n "$REMOTE" ] && [ "$LOCAL" != "$REMOTE" ]; then
-                log_info "Updates found, pulling latest changes..."
-                git reset --hard "origin/$GIT_BRANCH" 2>/dev/null || log_info "Could not apply updates"
-                
-                # Reinstall requirements in case they changed
-                pip install -r requirements.txt -q 2>/dev/null || log_info "Could not update requirements"
-                # Reinstall openwakeword with --no-deps (see requirements.txt comment)
-                pip install --no-deps "openwakeword>=0.6.0" -q 2>/dev/null || true
-                install_davoice_sdk_best_effort
-                log_success "Updates applied"
-            else
-                log_info "Already up to date"
-            fi
+        log_info "Checking for release updates before restart..."
+        if sync_client_release; then
+            cd "$CLIENT_DIR"
+            pip install -r requirements.txt -q 2>/dev/null || log_info "Could not update requirements"
+            pip install --no-deps "openwakeword>=0.6.0" -q 2>/dev/null || true
+            install_davoice_sdk_best_effort
+            log_success "Release check completed"
         else
-            log_info "Could not check for updates (no internet)"
+            log_info "Could not check for release updates (using local version)"
         fi
     else
-        log_info "Skipping update check (no internet)"
+        log_info "Skipping release check (no internet)"
     fi
     
     cd "$CLIENT_DIR"

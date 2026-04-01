@@ -23,10 +23,18 @@ This wrapper automates the setup and management of the Kin AI voice assistant cl
 
 - System dependency installation
 - OpenTelemetry collector setup with persistent logging
-- Automatic code updates from git
+- Automatic client updates from GitHub Release artifacts
 - Systemd service management for auto-start on boot
 - Python virtual environment and dependency management
 - Device authentication with automatic key fetching
+
+## Release Artifact Deployment
+
+The wrapper now installs versioned client release bundles instead of cloning the live `main` branch onto each device. This removes plaintext Python source from the deploy path and lets devices update to tagged, checksum-verified assets.
+
+- `install.sh` downloads and installs the configured release bundle.
+- `launch.sh` checks GitHub Releases for a newer bundle on boot and before restart.
+- `rollback.sh` swaps back to the previously installed release bundle.
 
 ## Architecture
 
@@ -47,7 +55,9 @@ raspberry-pi-client-wrapper/
 │   └── .cache/                # Downloaded tarballs (gitignored)
 ├── services/
 │   └── agent-launcher.service # Systemd service template
-├── raspberry-pi-client/       # Git cloned here (gitignored)
+├── raspberry-pi-client/       # Installed release bundle (gitignored)
+├── raspberry-pi-client.previous/ # Previous release kept for rollback
+├── downloads/                # Cached release assets (gitignored)
 └── README.md                  # This file
 ```
 
@@ -112,7 +122,8 @@ OTEL_CENTRAL_COLLECTOR_ENDPOINT=<your-endpoint>
 ENV=production
 
 # Optional (defaults apply if not set):
-# GIT_BRANCH=main  (default: main)
+# CLIENT_RELEASE_CHANNEL=production
+# CLIENT_RELEASE_TAG=v0.1.0
 ```
 
 ### Option B: Manual Installation
@@ -157,7 +168,7 @@ The installer will:
 
 1. Check system compatibility
 2. Install system dependencies (Python, ALSA, audio libraries)
-3. Clone the raspberry-pi-client repository
+3. Download and verify the configured client release artifact
 4. Create Python virtual environment
 5. Install Python requirements
 6. Prompt for configuration (Device ID, OTEL endpoint, Environment)
@@ -215,9 +226,9 @@ The `launch.sh` script runs on every boot:
    ├─ Ping 8.8.8.8 with retries
    └─ Exit if no connection after 30 attempts
 
-2. Update Code
-   ├─ Clone repo if not exists
-   └─ Git pull latest changes if exists
+2. Sync Release Artifact
+   ├─ Download latest configured release if client missing
+   └─ Install a newer release if one is available
 
 3. Setup Python Environment
    ├─ Create venv if not exists
@@ -307,8 +318,8 @@ Reports are written to:
 ### Manually Update Code
 
 ```bash
-cd ~/raspberry-pi-client-wrapper/raspberry-pi-client
-git pull origin main
+cd ~/raspberry-pi-client-wrapper
+python3 github/release_manager.py sync --wrapper-dir .
 sudo systemctl restart agent-launcher
 ```
 
@@ -316,7 +327,7 @@ sudo systemctl restart agent-launcher
 
 ```bash
 cd ~/raspberry-pi-client-wrapper/raspberry-pi-client
-source venv/bin/activate
+source ../venv/bin/activate
 pip install -r requirements.txt --force-reinstall
 ```
 
@@ -327,10 +338,10 @@ pip install -r requirements.txt --force-reinstall
 sudo systemctl stop agent-launcher
 sudo systemctl stop otelcol
 
-# Remove cloned repository
+# Remove installed release bundle
 rm -rf ~/raspberry-pi-client-wrapper/raspberry-pi-client
 
-# Restart (will re-clone)
+# Restart (will re-download the configured release)
 sudo systemctl start agent-launcher
 ```
 
@@ -398,15 +409,21 @@ sudo journalctl -u otelcol -n 50
 sudo /usr/local/bin/otelcol --config=/etc/otelcol/config.yaml validate
 ```
 
-### Code Not Updating
+### Client Not Updating
 
-**Force update:**
+**Force a release sync:**
 
 ```bash
-cd ~/raspberry-pi-client-wrapper/raspberry-pi-client
-git fetch origin main
-git reset --hard origin/main
+cd ~/raspberry-pi-client-wrapper
+python3 github/release_manager.py sync --wrapper-dir .
 sudo systemctl restart agent-launcher
+```
+
+**Roll back one release:**
+
+```bash
+cd ~/raspberry-pi-client-wrapper
+./rollback.sh
 ```
 
 ### Service Won't Start on Boot
@@ -436,7 +453,7 @@ sudo systemctl stop agent-launcher
 
 # Activate venv and run
 cd ~/raspberry-pi-client-wrapper/raspberry-pi-client
-source venv/bin/activate
+source ../venv/bin/activate
 python main.py
 
 # When done, restart service
@@ -471,7 +488,7 @@ The uninstall script will:
 2. Disable all services
 3. Remove service files from systemd
 4. Remove OpenTelemetry Collector (binary, configs, data)
-5. Remove cloned repository and virtual environment
+5. Remove installed client releases, release cache, and virtual environment
 6. **Prompt** to remove wrapper directory (optional)
 7. **Prompt** to remove cached downloads (optional)
 8. **Prompt** to remove system packages (optional)
@@ -483,7 +500,7 @@ The uninstall script will:
 
 - All systemd services
 - OpenTelemetry Collector
-- Cloned raspberry-pi-client repository
+- Installed raspberry-pi-client releases
 - Python virtual environment
 
 **Optional (prompted):**
@@ -497,19 +514,22 @@ The uninstall script will:
 
 ## Configuration Reference
 
-### Git Repository
+### Release Source
 
-- **URL**: `https://github.com/companionsand/raspberry-pi-client.git` (HTTPS - public repo)
-- **Branch**: Configurable via `GIT_BRANCH` in `.env` (default: `main`)
-- **Clone Location**: `~/raspberry-pi-client-wrapper/raspberry-pi-client/`
-- **Authentication**: None required (public repository)
+- **Repo**: `companionsand/raspberry-pi-client`
+- **Channel**: Configurable via `CLIENT_RELEASE_CHANNEL` in `.env` (default: `production`)
+- **Pinning**: Optional `CLIENT_RELEASE_TAG` for one exact release
+- **Asset Platform**: `CLIENT_RELEASE_PLATFORM=linux-aarch64`
+- **Authentication**: Public assets need none; set `CLIENT_RELEASE_GITHUB_TOKEN` only for private releases
 
 ### Paths
 
 - **Wrapper**: `~/raspberry-pi-client-wrapper/`
 - **Client**: `~/raspberry-pi-client-wrapper/raspberry-pi-client/`
-- **Venv**: `~/raspberry-pi-client-wrapper/raspberry-pi-client/venv/`
+- **Previous Client**: `~/raspberry-pi-client-wrapper/raspberry-pi-client.previous/`
+- **Venv**: `~/raspberry-pi-client-wrapper/venv/`
 - **Client .env**: `~/raspberry-pi-client-wrapper/raspberry-pi-client/.env`
+- **Release Cache**: `~/raspberry-pi-client-wrapper/downloads/releases/`
 - **Cache**: `~/raspberry-pi-client-wrapper/otel/.cache/` (OpenTelemetry tarball)
 - **OTEL Config**: `/etc/otelcol/config.yaml`
 - **OTEL Env**: `/etc/otelcol/otelcol.env`

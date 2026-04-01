@@ -10,8 +10,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 # Configuration
 WRAPPER_DIR="$SCRIPT_DIR"
 CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
-VENV_DIR="$CLIENT_DIR/venv"
-GIT_REPO_URL="git@github.com:companionsand/raspberry-pi-client.git"  # SSH URL (requires deploy key)
+VENV_DIR="$WRAPPER_DIR/venv"
 DAVOICE_WHEEL_URL="https://github.com/frymanofer/Python_WakeWordDetection/raw/main/dist/keyword_detection_lib-2.0.3-cp313-none-manylinux2014_aarch64.whl"
 
 # Colors for output
@@ -131,7 +130,9 @@ else
 fi
 
 # Set defaults for optional configuration
-GIT_BRANCH=${GIT_BRANCH:-"main"}  # Default to main branch
+CLIENT_RELEASE_REPO=${CLIENT_RELEASE_REPO:-"companionsand/raspberry-pi-client"}
+CLIENT_RELEASE_CHANNEL=${CLIENT_RELEASE_CHANNEL:-"production"}
+CLIENT_RELEASE_PLATFORM=${CLIENT_RELEASE_PLATFORM:-"linux-aarch64"}
 
 # Print header
 echo "========================================="
@@ -505,9 +506,8 @@ fi
 
 log_success "ReSpeaker udev rules configured"
 
-# Step 2b: Collect device credentials (needed for deploy key)
-# This is done early because we need credentials to fetch the deploy key
-# which is required to clone the private repository
+# Step 2b: Collect device credentials so the installed client can authenticate
+# after the release bundle is downloaded.
 echo ""
 echo "========================================="
 echo "  Device Credentials"
@@ -556,51 +556,19 @@ echo "  Device ID: $DEVICE_ID_INPUT"
 echo "  BLE Name: Olympia_$BLE_DISCRIMINATOR_INPUT"
 echo ""
 
-# Step 2c: Fetch deploy key for private repository access
-log_info "Fetching repository access credentials..."
-
-# Source the deploy key helper
-if [ -f "$WRAPPER_DIR/github/fetch_deploy_key.sh" ]; then
-    source "$WRAPPER_DIR/github/fetch_deploy_key.sh"
-    
-    if fetch_and_setup_deploy_key "$DEVICE_ID_INPUT" "$DEVICE_PRIVATE_KEY_INPUT"; then
-        log_success "Repository credentials configured"
-    else
-        log_error "Failed to fetch repository credentials"
-        log_error "Please check device credentials and network connection"
+# Step 2c: Download and install the configured client release
+log_info "Downloading Raspberry Pi client release assets..."
+if [ -f "$WRAPPER_DIR/github/release_manager.py" ]; then
+    RELEASE_SYNC_RESULT=$(python3 "$WRAPPER_DIR/github/release_manager.py" sync --wrapper-dir "$WRAPPER_DIR" 2>&1) || {
+        log_error "Failed to install Raspberry Pi client release"
+        echo "$RELEASE_SYNC_RESULT"
         exit 1
-    fi
+    }
+    echo "$RELEASE_SYNC_RESULT"
+    log_success "Client release installed"
 else
-    log_error "Deploy key script not found at $WRAPPER_DIR/github/fetch_deploy_key.sh"
+    log_error "Release manager not found at $WRAPPER_DIR/github/release_manager.py"
     exit 1
-fi
-
-# Step 3: Clone repository
-log_info "Setting up repository..."
-
-# Configure git safe.directory for root user (required when service runs as root)
-# This prevents "dubious ownership" errors when root operates on kin-owned repos
-log_info "Configuring git safe.directory for root..."
-sudo git config --global --add safe.directory "$WRAPPER_DIR" 2>/dev/null || true
-sudo git config --global --add safe.directory "$CLIENT_DIR" 2>/dev/null || true
-
-if [ ! -d "$CLIENT_DIR" ]; then
-    log_info "Cloning repository from $GIT_REPO_URL..."
-    mkdir -p "$WRAPPER_DIR"
-    cd "$WRAPPER_DIR"
-    git clone -b "$GIT_BRANCH" "$GIT_REPO_URL" "$CLIENT_DIR"
-    log_success "Repository cloned"
-else
-    log_info "Repository already exists at $CLIENT_DIR"
-    cd "$CLIENT_DIR"
-    
-    # Ensure we're using SSH remote
-    source "$WRAPPER_DIR/github/fetch_deploy_key.sh"
-    switch_to_ssh_remote "$CLIENT_DIR"
-    
-    git fetch origin "$GIT_BRANCH"
-    git reset --hard "origin/$GIT_BRANCH"
-    log_success "Repository updated"
 fi
 
 # Step 3b: Install ReSpeaker USB dependencies
@@ -978,7 +946,7 @@ echo ""
 echo "Boot Behavior:"
 echo "   On every boot, the agent launcher will:"
 echo "     - Wait for internet connection"
-echo "     - Update code from git"
+echo "     - Check for a new release artifact"
 echo "     - Install dependencies"
 echo "     - Launch the client"
 echo ""

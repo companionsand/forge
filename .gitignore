@@ -1,5 +1,8 @@
-# Cloned repository (managed by wrapper scripts)
+# Installed client release (managed by wrapper scripts)
 raspberry-pi-client/
+raspberry-pi-client.previous/
+downloads/
+.client-release-state.json
 
 # Cache directory (downloaded files)
 otel/.cache/

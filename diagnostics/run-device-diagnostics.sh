@@ -10,7 +10,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WRAPPER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
-VENV_PYTHON="$CLIENT_DIR/venv/bin/python"
+VENV_PYTHON="$WRAPPER_DIR/venv/bin/python"
 
 SERVICE_NAME="agent-launcher"
 SLEEP_BETWEEN_STEPS="${SLEEP_BETWEEN_STEPS:-3}"
