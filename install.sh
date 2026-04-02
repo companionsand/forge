@@ -593,15 +593,21 @@ if [ ! -d "$CLIENT_DIR" ]; then
 else
     log_info "Repository already exists at $CLIENT_DIR"
     cd "$CLIENT_DIR"
-    
+
     # Ensure we're using SSH remote
     source "$WRAPPER_DIR/github/fetch_deploy_key.sh"
     switch_to_ssh_remote "$CLIENT_DIR"
-    
+
     git fetch origin "$GIT_BRANCH"
     git reset --hard "origin/$GIT_BRANCH"
     log_success "Repository updated"
 fi
+
+# Initialise / update the cerebro submodule (contains ML model weights)
+log_info "Initialising cerebro submodule..."
+cd "$CLIENT_DIR"
+git submodule update --init --recursive
+log_success "cerebro submodule ready"
 
 # Step 3b: Install ReSpeaker USB dependencies
 # ReSpeaker tuning tools are now vendored in raspberry-pi-client (no external repo needed)
@@ -648,6 +654,14 @@ if [ -f "$CLIENT_DIR/requirements.txt" ]; then
     log_info "Installing openwakeword (no-deps)..."
     pip install --no-deps "openwakeword>=0.6.0" -q
     log_success "openwakeword installed"
+
+    # Install cerebro (ML inference submodule) as an editable package
+    if [ -f "$CLIENT_DIR/cerebro/pyproject.toml" ]; then
+        pip install -e "$CLIENT_DIR/cerebro" -q
+        log_success "cerebro submodule installed"
+    else
+        log_warning "cerebro submodule not found at $CLIENT_DIR/cerebro — skipping"
+    fi
 
     install_davoice_sdk_best_effort
 else
