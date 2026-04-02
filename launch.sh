@@ -310,10 +310,13 @@ else
         else
             log_info "Could not update repository (using local version)"
         fi
+
+        # Keep cerebro submodule in sync with the updated client
+        git submodule update --init --recursive 2>/dev/null || log_info "Could not update cerebro submodule (using cached version)"
     else
         log_info "Skipping git pull (no internet - will use local version)"
     fi
-    
+
     cd "$WRAPPER_DIR"
 fi
 
@@ -354,6 +357,11 @@ if [ -f "requirements.txt" ]; then
             log_success "openwakeword installed"
         else
             log_info "Could not install openwakeword (using cached version)"
+        fi
+
+        # Install cerebro (ML inference submodule) as an editable package
+        if [ -f "$CLIENT_DIR/cerebro/pyproject.toml" ]; then
+            pip install -e "$CLIENT_DIR/cerebro" -q 2>/dev/null && log_success "cerebro installed" || log_info "Could not install cerebro (using cached version)"
         fi
     else
         log_info "Could not install/update requirements (using cached versions)"
