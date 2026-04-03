@@ -479,8 +479,8 @@ log_info "Starting Kin AI client with idle-time monitoring..."
 log_info "Will restart after 3 hours of inactivity for updates"
 log_info "========================================="
 
-# Activity tracking file
-ACTIVITY_FILE="$WRAPPER_DIR/.last_activity"
+# Activity tracking file (must match raspberry-pi-client lib/engine/core.py — client updates mtime here)
+ACTIVITY_FILE="$CLIENT_DIR/.last_activity"
 IDLE_TIMEOUT=10800  # 3 hours in seconds
 
 # Function to check idle time
