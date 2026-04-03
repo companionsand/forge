@@ -42,6 +42,19 @@ DOWNLOAD_URL="https://github.com/open-telemetry/opentelemetry-collector-releases
 CACHE_DIR="$SCRIPT_DIR/.cache"
 CACHED_TARBALL="$CACHE_DIR/otelcol-contrib_${OTEL_VERSION}_linux_${OTEL_ARCH}.tar.gz"
 
+# Root-owned .cache from an old install prevents mkdir extract/ as normal user
+if [ -e "$CACHE_DIR" ] && [ ! -w "$CACHE_DIR" ] 2>/dev/null; then
+    if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
+        _fix_u="$SUDO_USER"
+        _fix_g="$(id -gn "$SUDO_USER" 2>/dev/null || echo "$SUDO_USER")"
+    else
+        _fix_u="$(id -un)"
+        _fix_g="$(id -gn)"
+    fi
+    echo "⚠️  Fixing ownership of $SCRIPT_DIR (OTEL cache not writable)..."
+    sudo chown -R "$_fix_u:$_fix_g" "$SCRIPT_DIR"
+fi
+
 # Create cache directory if it doesn't exist
 mkdir -p "$CACHE_DIR"
 

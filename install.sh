@@ -789,6 +789,18 @@ fi
 log_info "Setting up OpenTelemetry Collector..."
 
 if [ -f "$WRAPPER_DIR/otel/install-collector.sh" ]; then
+    # otel/.cache may be root-owned if a prior install ran as root — breaks mkdir extract/
+    if [ -d "$WRAPPER_DIR/otel" ]; then
+        if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
+            _OTEL_OWNER="$SUDO_USER"
+            _OTEL_GROUP="$(id -gn "$SUDO_USER" 2>/dev/null || echo "$SUDO_USER")"
+        else
+            _OTEL_OWNER="$(id -un)"
+            _OTEL_GROUP="$(id -gn)"
+        fi
+        log_info "Ensuring $WRAPPER_DIR/otel is owned by $_OTEL_OWNER (writable OTEL cache)..."
+        sudo chown -R "$_OTEL_OWNER:$_OTEL_GROUP" "$WRAPPER_DIR/otel"
+    fi
     cd "$WRAPPER_DIR/otel"
     chmod +x install-collector.sh
     ./install-collector.sh
