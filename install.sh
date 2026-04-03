@@ -609,6 +609,29 @@ else
     log_success "Repository updated"
 fi
 
+# Submodule clone writes under CLIENT_DIR; if root ever owned this tree (e.g. launcher run as root), git fails: Permission denied on cerebro/.git
+if [ -d "$CLIENT_DIR" ]; then
+    if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
+        _REPO_OWNER="$SUDO_USER"
+        _REPO_GROUP="$(id -gn "$SUDO_USER" 2>/dev/null || echo "$SUDO_USER")"
+    else
+        _REPO_OWNER="$(id -un)"
+        _REPO_GROUP="$(id -gn)"
+    fi
+    _need_chown=0
+    _cur_owner="$(stat -c '%U' "$CLIENT_DIR" 2>/dev/null || true)"
+    if [ -n "$_cur_owner" ] && [ "$_cur_owner" != "$_REPO_OWNER" ]; then
+        _need_chown=1
+    fi
+    if [ -e "$CLIENT_DIR/cerebro" ] && [ ! -w "$CLIENT_DIR/cerebro" ] 2>/dev/null; then
+        _need_chown=1
+    fi
+    if [ "$_need_chown" -eq 1 ]; then
+        log_info "Fixing ownership of $CLIENT_DIR for user $_REPO_OWNER (required for cerebro submodule)..."
+        sudo chown -R "$_REPO_OWNER:$_REPO_GROUP" "$CLIENT_DIR"
+    fi
+fi
+
 # Initialise / update the cerebro submodule (contains ML model weights)
 log_info "Initialising cerebro submodule..."
 cd "$CLIENT_DIR"
