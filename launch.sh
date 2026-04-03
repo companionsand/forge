@@ -143,10 +143,16 @@ ensure_bluetooth_noinput_agent() {
 trap stop_bluetooth_noinput_agent EXIT
 
 verify_davoice_sdk() {
-    python -c "import pkg_resources; from keyword_detection import KeywordDetection" >/dev/null 2>&1
+    [ -n "$VENV_PYTHON" ] && [ -x "$VENV_PYTHON" ] || return 1
+    "$VENV_PYTHON" -c "import pkg_resources; from keyword_detection import KeywordDetection" >/dev/null 2>&1
 }
 
 install_davoice_sdk_best_effort() {
+    if [ -z "$VENV_PYTHON" ] || [ ! -x "$VENV_PYTHON" ]; then
+        log_warn "Virtualenv python not set; skipping DaVoice SDK install"
+        return 0
+    fi
+
     if verify_davoice_sdk; then
         log_success "DaVoice SDK already available"
         return 0
@@ -154,13 +160,13 @@ install_davoice_sdk_best_effort() {
 
     log_info "Installing DaVoice SDK (best effort)..."
 
-    if python -m pip install --force-reinstall "setuptools<82" -q 2>/dev/null; then
+    if "$VENV_PYTHON" -m pip install --force-reinstall "setuptools<82" -q 2>/dev/null; then
         log_success "Pinned setuptools for DaVoice compatibility"
     else
         log_warn "Could not pin setuptools<82 for DaVoice compatibility"
     fi
 
-    if python -m pip install --force-reinstall --no-deps "$DAVOICE_WHEEL_URL" -q 2>/dev/null; then
+    if "$VENV_PYTHON" -m pip install --force-reinstall --no-deps "$DAVOICE_WHEEL_URL" -q 2>/dev/null; then
         log_success "DaVoice SDK installed"
     else
         log_warn "Could not install DaVoice SDK wheel (client may fall back to OpenWakeWord)"
@@ -330,8 +336,16 @@ else
     log_info "Virtual environment already exists"
 fi
 
-# Activate virtual environment
+# Activate virtual environment (use $VENV_PYTHON -m pip — avoids system PEP 668 on Debian / Pi OS)
 source "$VENV_DIR/bin/activate"
+VENV_PYTHON="$VENV_DIR/bin/python3"
+if [ ! -x "$VENV_PYTHON" ]; then
+    VENV_PYTHON="$VENV_DIR/bin/python"
+fi
+export VENV_PYTHON
+if [ -x "$VENV_PYTHON" ] && ! "$VENV_PYTHON" -m pip --version &>/dev/null; then
+    "$VENV_PYTHON" -m ensurepip --upgrade &>/dev/null || true
+fi
 log_success "Virtual environment activated"
 
 # Ensure Python logs are flushed immediately so journald sees them
@@ -346,14 +360,14 @@ cd "$CLIENT_DIR"
 
 if [ -f "requirements.txt" ]; then
     # Try to install requirements (gracefully handle failure if no internet)
-    if pip install --upgrade pip -q 2>/dev/null && pip install -r requirements.txt -q 2>/dev/null; then
+    if [ -x "$VENV_PYTHON" ] && "$VENV_PYTHON" -m pip install --upgrade pip -q 2>/dev/null && "$VENV_PYTHON" -m pip install -r requirements.txt -q 2>/dev/null; then
         log_success "Requirements installed"
         
         # Install openwakeword separately with --no-deps
         # openwakeword requires tflite-runtime which has no Python 3.13 wheels
         # We use ONNX backend anyway, so tflite-runtime is not needed
         # Required deps (tqdm, scikit-learn) are already in requirements.txt
-        if pip install --no-deps "openwakeword>=0.6.0" -q 2>/dev/null; then
+        if "$VENV_PYTHON" -m pip install --no-deps "openwakeword>=0.6.0" -q 2>/dev/null; then
             log_success "openwakeword installed"
         else
             log_info "Could not install openwakeword (using cached version)"
@@ -361,7 +375,7 @@ if [ -f "requirements.txt" ]; then
 
         # Install cerebro (ML inference submodule) as an editable package
         if [ -f "$CLIENT_DIR/cerebro/pyproject.toml" ]; then
-            pip install -e "$CLIENT_DIR/cerebro" -q 2>/dev/null && log_success "cerebro installed" || log_info "Could not install cerebro (using cached version)"
+            "$VENV_PYTHON" -m pip install -e "$CLIENT_DIR/cerebro" -q 2>/dev/null && log_success "cerebro installed" || log_info "Could not install cerebro (using cached version)"
         fi
     else
         log_info "Could not install/update requirements (using cached versions)"
@@ -561,11 +575,16 @@ while true; do
             if [ -n "$LOCAL" ] && [ -n "$REMOTE" ] && [ "$LOCAL" != "$REMOTE" ]; then
                 log_info "Updates found, pulling latest changes..."
                 git reset --hard "origin/$GIT_BRANCH" 2>/dev/null || log_info "Could not apply updates"
+
+                git submodule update --init --recursive 2>/dev/null || log_info "Could not update cerebro submodule"
                 
                 # Reinstall requirements in case they changed
-                pip install -r requirements.txt -q 2>/dev/null || log_info "Could not update requirements"
+                "$VENV_PYTHON" -m pip install -r requirements.txt -q 2>/dev/null || log_info "Could not update requirements"
                 # Reinstall openwakeword with --no-deps (see requirements.txt comment)
-                pip install --no-deps "openwakeword>=0.6.0" -q 2>/dev/null || true
+                "$VENV_PYTHON" -m pip install --no-deps "openwakeword>=0.6.0" -q 2>/dev/null || true
+                if [ -f "cerebro/pyproject.toml" ]; then
+                    "$VENV_PYTHON" -m pip install -e "$CLIENT_DIR/cerebro" -q 2>/dev/null || true
+                fi
                 install_davoice_sdk_best_effort
                 log_success "Updates applied"
             else

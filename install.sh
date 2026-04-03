@@ -83,10 +83,16 @@ ExecStart=$bluetoothd_path -P battery"
 }
 
 verify_davoice_sdk() {
-    python -c "import pkg_resources; from keyword_detection import KeywordDetection" >/dev/null 2>&1
+    [ -n "$VENV_PYTHON" ] && [ -x "$VENV_PYTHON" ] || return 1
+    "$VENV_PYTHON" -c "import pkg_resources; from keyword_detection import KeywordDetection" >/dev/null 2>&1
 }
 
 install_davoice_sdk_best_effort() {
+    if [ -z "$VENV_PYTHON" ] || [ ! -x "$VENV_PYTHON" ]; then
+        log_warning "Virtualenv python not set; skipping DaVoice SDK install"
+        return 0
+    fi
+
     if verify_davoice_sdk; then
         log_success "DaVoice SDK already available"
         return 0
@@ -94,13 +100,13 @@ install_davoice_sdk_best_effort() {
 
     log_info "Installing DaVoice SDK (best effort)..."
 
-    if python -m pip install --force-reinstall "setuptools<82" -q; then
+    if "$VENV_PYTHON" -m pip install --force-reinstall "setuptools<82" -q; then
         log_success "Pinned setuptools for DaVoice compatibility"
     else
         log_warning "Could not pin setuptools<82 for DaVoice compatibility"
     fi
 
-    if python -m pip install --force-reinstall --no-deps "$DAVOICE_WHEEL_URL" -q; then
+    if "$VENV_PYTHON" -m pip install --force-reinstall --no-deps "$DAVOICE_WHEEL_URL" -q; then
         log_success "DaVoice SDK installed"
     else
         log_warning "Could not install DaVoice SDK wheel"
@@ -635,16 +641,35 @@ else
     log_info "Virtual environment already exists"
 fi
 
-# Activate and upgrade pip
+# Resolve venv interpreter and pip explicitly (bare `pip`/`python` can hit system PEP 668 on Debian / Pi OS)
+VENV_PYTHON="$VENV_DIR/bin/python3"
+if [ ! -x "$VENV_PYTHON" ]; then
+    VENV_PYTHON="$VENV_DIR/bin/python"
+fi
+if [ ! -x "$VENV_PYTHON" ]; then
+    log_error "No Python interpreter in $VENV_DIR/bin. Remove $VENV_DIR and run install.sh again."
+    exit 1
+fi
+export VENV_PYTHON
+
+if ! "$VENV_PYTHON" -m pip --version &>/dev/null; then
+    log_info "Bootstrapping pip into virtual environment..."
+    if ! "$VENV_PYTHON" -m ensurepip --upgrade &>/dev/null; then
+        log_error "Could not install pip in venv. Try: rm -rf \"$VENV_DIR\" && ./install.sh"
+        exit 1
+    fi
+fi
+
+# Activate for interactive tools; all installs use $VENV_PYTHON -m pip
 source "$VENV_DIR/bin/activate"
-pip install --upgrade pip -q
+"$VENV_PYTHON" -m pip install --upgrade pip -q
 log_success "Python environment ready"
 
 # Step 5: Install Python requirements
 log_info "Installing Python requirements..."
 
 if [ -f "$CLIENT_DIR/requirements.txt" ]; then
-    pip install -r "$CLIENT_DIR/requirements.txt" -q
+    "$VENV_PYTHON" -m pip install -r "$CLIENT_DIR/requirements.txt" -q
     log_success "Python requirements installed"
     
     # Install openwakeword separately with --no-deps
@@ -652,12 +677,12 @@ if [ -f "$CLIENT_DIR/requirements.txt" ]; then
     # We use ONNX backend anyway, so tflite-runtime is not needed
     # Required deps (tqdm, scikit-learn) are already in requirements.txt
     log_info "Installing openwakeword (no-deps)..."
-    pip install --no-deps "openwakeword>=0.6.0" -q
+    "$VENV_PYTHON" -m pip install --no-deps "openwakeword>=0.6.0" -q
     log_success "openwakeword installed"
 
     # Install cerebro (ML inference submodule) as an editable package
     if [ -f "$CLIENT_DIR/cerebro/pyproject.toml" ]; then
-        pip install -e "$CLIENT_DIR/cerebro" -q
+        "$VENV_PYTHON" -m pip install -e "$CLIENT_DIR/cerebro" -q
         log_success "cerebro submodule installed"
     else
         log_warning "cerebro submodule not found at $CLIENT_DIR/cerebro — skipping"
