@@ -8,8 +8,8 @@ Requires=otelcol.service
 [Service]
 Type=simple
 User=pi
-WorkingDirectory=/home/pi/raspberry-pi-client-wrapper
-ExecStart=/home/pi/raspberry-pi-client-wrapper/launch.sh
+WorkingDirectory=/home/pi/forge
+ExecStart=/home/pi/forge/launch.sh
 
 # Environment file for runtime configuration
 EnvironmentFile=/etc/default/agent-launcher
