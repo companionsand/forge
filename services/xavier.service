@@ -1,5 +1,5 @@
 [Unit]
-Description=Kin AI Agent Launcher
+Description=Xavier (Kin AI agent launcher)
 Documentation=https://github.com/companionsand/raspberry-pi-client
 After=network-online.target otelcol.service
 Wants=network-online.target
@@ -12,7 +12,7 @@ WorkingDirectory=/home/pi/forge
 ExecStart=/home/pi/forge/launch.sh
 
 # Environment file for runtime configuration
-EnvironmentFile=/etc/default/agent-launcher
+EnvironmentFile=/etc/default/xavier
 
 # Auto-restart on crash/failure
 Restart=always
@@ -23,7 +23,7 @@ StartLimitBurst=0
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=agent-launcher
+SyslogIdentifier=xavier
 
 # Environment
 Environment="PATH=/usr/local/bin:/usr/bin:/bin"

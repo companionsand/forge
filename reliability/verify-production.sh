@@ -180,8 +180,8 @@ echo ""
 echo "Additional Checks:"
 echo "  - Audio devices: aplay -l && arecord -l"
 echo "  - Network status: nmcli device status"
-echo "  - Services: systemctl status agent-launcher otelcol"
-echo "  - Recent logs: journalctl -u agent-launcher -n 50"
+echo "  - Services: systemctl status xavier otelcol"
+echo "  - Recent logs: journalctl -u xavier -n 50"
 echo ""
 
 # Always exit with success (never fail installation)

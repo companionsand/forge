@@ -32,13 +32,17 @@ echo "  Kin AI Client - Reinstaller"
 echo "========================================="
 echo ""
 
-# Step 1: Stop the agent-launcher service
-log_info "Stopping agent-launcher service..."
+# Step 1: Stop the Xavier service (and legacy agent-launcher if present)
+log_info "Stopping Xavier service..."
+if systemctl is-active --quiet xavier 2>/dev/null; then
+    sudo systemctl stop xavier
+    log_success "Xavier service stopped"
+else
+    log_info "Xavier service not running"
+fi
 if systemctl is-active --quiet agent-launcher 2>/dev/null; then
     sudo systemctl stop agent-launcher
-    log_success "Agent-launcher service stopped"
-else
-    log_info "Agent-launcher service not running"
+    log_success "Legacy agent-launcher service stopped"
 fi
 
 # Step 2: Run uninstall script

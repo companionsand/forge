@@ -21,7 +21,7 @@ Configures persistent system-level settings for maximum reliability:
 **Usage:**
 
 ```bash
-cd /home/pi/raspberry-pi-client-wrapper
+cd /home/pi/forge
 ./reliability/production-setup.sh
 ```
 
@@ -42,7 +42,7 @@ Verifies all production reliability settings are properly configured.
 **Usage:**
 
 ```bash
-cd /home/pi/raspberry-pi-client-wrapper
+cd /home/pi/forge
 ./reliability/verify-production.sh
 ```
 

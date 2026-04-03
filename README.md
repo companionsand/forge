@@ -46,7 +46,7 @@ raspberry-pi-client-wrapper/
 │   ├── otel-collector-config.yaml
 │   └── .cache/                # Downloaded tarballs (gitignored)
 ├── services/
-│   └── agent-launcher.service # Systemd service template
+│   └── xavier.service # Systemd service template
 ├── raspberry-pi-client/       # Git cloned here (gitignored)
 └── README.md                  # This file
 ```
@@ -162,7 +162,7 @@ The installer will:
 5. Install Python requirements
 6. Prompt for configuration (Device ID, OTEL endpoint, Environment)
 7. Setup OpenTelemetry Collector with systemd service
-8. Setup agent-launcher systemd service (with auto-restart)
+8. Setup xavier systemd service (with auto-restart)
 9. Create .env template files
 
 **Installation takes 5-10 minutes** depending on your Pi model and internet speed.
@@ -170,14 +170,14 @@ The installer will:
 ### View Logs
 
 ```bash
-# Agent launcher logs (main application)
-sudo journalctl -u agent-launcher -f
+# Xavier logs (main application)
+sudo journalctl -u xavier -f
 
 # OpenTelemetry Collector logs
 sudo journalctl -u otelcol -f
 
 # Combined view
-sudo journalctl -u agent-launcher -u otelcol -f
+sudo journalctl -u xavier -u otelcol -f
 ```
 
 ## How It Works
@@ -202,7 +202,7 @@ This ensures your device stays online even after:
 
 When the Raspberry Pi boots:
 
-1. **Network Wait**: `agent-launcher.service` waits for network-online.target
+1. **Network Wait**: `xavier.service` waits for network-online.target
 2. **OTEL Start**: OpenTelemetry Collector starts (dependency)
 3. **Launch Script**: `launch.sh` is executed by systemd
 
@@ -241,7 +241,7 @@ The `launch.sh` script runs on every boot:
 | Service                  | Type   | Purpose                   | Auto-Start | Auto-Restart      |
 | ------------------------ | ------ | ------------------------- | ---------- | ----------------- |
 | `otelcol.service`        | System | OpenTelemetry Collector   | Yes        | Yes               |
-| `agent-launcher.service` | System | Client Launcher & Updater | Yes        | Yes (unlimited)   |
+| `xavier.service` | System | Client Launcher & Updater | Yes        | Yes (unlimited)   |
 
 ## ReSpeaker Configuration
 
@@ -287,10 +287,10 @@ bash diagnostics/run-device-diagnostics.sh
 
 Behavior:
 
-- Stops `agent-launcher` (if currently active)
+- Stops `xavier` (if currently active)
 - Sleeps between stop -> run -> restart steps
 - Runs diagnostics using `systemd-run --wait --collect`
-- Restarts `agent-launcher` automatically on exit (including failures)
+- Restarts `xavier` automatically on exit (including failures)
 
 Optional tuning:
 
@@ -309,7 +309,7 @@ Reports are written to:
 ```bash
 cd ~/raspberry-pi-client-wrapper/raspberry-pi-client
 git pull origin main
-sudo systemctl restart agent-launcher
+sudo systemctl restart xavier
 ```
 
 ### Reinstall Dependencies
@@ -324,34 +324,34 @@ pip install -r requirements.txt --force-reinstall
 
 ```bash
 # Stop services
-sudo systemctl stop agent-launcher
+sudo systemctl stop xavier
 sudo systemctl stop otelcol
 
 # Remove cloned repository
 rm -rf ~/raspberry-pi-client-wrapper/raspberry-pi-client
 
 # Restart (will re-clone)
-sudo systemctl start agent-launcher
+sudo systemctl start xavier
 ```
 
 ## Troubleshooting
 
-### Agent Won't Start
+### Xavier won't start
 
 **Check logs:**
 
 ```bash
-sudo journalctl -u agent-launcher -n 50
+sudo journalctl -u xavier -n 50
 ```
 
 **View restart history:**
 
 ```bash
 # See how many times the service has restarted
-sudo systemctl status agent-launcher
+sudo systemctl status xavier
 
 # Watch for restart events in real-time
-sudo journalctl -u agent-launcher -f
+sudo journalctl -u xavier -f
 ```
 
 **Common issues:**
@@ -406,7 +406,7 @@ sudo /usr/local/bin/otelcol --config=/etc/otelcol/config.yaml validate
 cd ~/raspberry-pi-client-wrapper/raspberry-pi-client
 git fetch origin main
 git reset --hard origin/main
-sudo systemctl restart agent-launcher
+sudo systemctl restart xavier
 ```
 
 ### Service Won't Start on Boot
@@ -414,14 +414,14 @@ sudo systemctl restart agent-launcher
 **Check service status:**
 
 ```bash
-sudo systemctl is-enabled agent-launcher
+sudo systemctl is-enabled xavier
 sudo systemctl is-enabled otelcol
 ```
 
 **Re-enable:**
 
 ```bash
-sudo systemctl enable agent-launcher
+sudo systemctl enable xavier
 sudo systemctl enable otelcol
 sudo systemctl daemon-reload
 ```
@@ -432,7 +432,7 @@ To run the client manually (not as a service):
 
 ```bash
 # Stop the service
-sudo systemctl stop agent-launcher
+sudo systemctl stop xavier
 
 # Activate venv and run
 cd ~/raspberry-pi-client-wrapper/raspberry-pi-client
@@ -440,7 +440,7 @@ source venv/bin/activate
 python main.py
 
 # When done, restart service
-sudo systemctl start agent-launcher
+sudo systemctl start xavier
 ```
 
 ## Uninstallation
@@ -467,7 +467,7 @@ cd ~/raspberry-pi-client-wrapper
 
 The uninstall script will:
 
-1. Stop all services (agent-launcher, otelcol)
+1. Stop all services (xavier, otelcol)
 2. Disable all services
 3. Remove service files from systemd
 4. Remove OpenTelemetry Collector (binary, configs, data)
@@ -516,7 +516,7 @@ The uninstall script will:
 
 ### Service Files
 
-- **Agent Launcher**: `/etc/systemd/system/agent-launcher.service`
+- **Xavier**: `/etc/systemd/system/xavier.service`
 - **OTEL Collector**: `/etc/systemd/system/otelcol.service`
 
 ## Performance Optimizations

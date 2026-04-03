@@ -151,9 +151,9 @@ ensure_token() {
     return 0
 }
 
-# Function to get last N lines of agent-launcher logs
+# Function to get last N lines of Xavier (systemd xavier) logs
 get_logs() {
-    journalctl -u agent-launcher --no-pager -n $LOG_LINES 2>/dev/null || echo "Unable to retrieve logs"
+    journalctl -u xavier --no-pager -n $LOG_LINES 2>/dev/null || echo "Unable to retrieve logs"
 }
 
 # Function to collect device metrics
@@ -397,7 +397,7 @@ execute_intervention() {
     
     case "$intervention_type" in
         "restart")
-            log_info "Restarting agent-launcher service..."
+            log_info "Restarting Xavier service..."
             
             # Mark as executed BEFORE restarting (we'll be killed when service restarts)
             update_intervention_status "$intervention_id" "executed"
@@ -407,7 +407,7 @@ execute_intervention() {
             sleep 1
             
             # This will kill us, but that's expected
-            sudo systemctl restart agent-launcher
+            sudo systemctl restart xavier
             ;;
             
         "reinstall")
@@ -427,7 +427,7 @@ execute_intervention() {
             sleep 1
             
             # Run reinstall in background with nohup so it survives when we're killed
-            # The reinstall script will stop agent-launcher which kills this monitor process
+            # The reinstall script will stop xavier which kills this monitor process
             chmod +x "$WRAPPER_DIR/reinstall.sh"
             nohup "$WRAPPER_DIR/reinstall.sh" >> /tmp/reinstall.log 2>&1 &
             disown

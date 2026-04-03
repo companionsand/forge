@@ -15,7 +15,7 @@ GIT_REPO_URL="git@github.com:companionsand/raspberry-pi-client.git"  # SSH URL (
 DAVOICE_WHEEL_URL="https://github.com/frymanofer/Python_WakeWordDetection/raw/main/dist/keyword_detection_lib-2.0.3-cp313-none-manylinux2014_aarch64.whl"
 
 # Logging
-LOG_PREFIX="[agent-launcher]"
+LOG_PREFIX="[xavier]"
 log_info() {
     echo "$LOG_PREFIX [INFO] $1"
 }

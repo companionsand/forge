@@ -1,9 +1,9 @@
 #!/bin/bash
 # Run active device diagnostics in a transient systemd unit.
 # Flow:
-#  1) Stop agent-launcher
+#  1) Stop xavier
 #  2) Run diagnostics under systemd-run
-#  3) Start agent-launcher again
+#  3) Start xavier again
 
 set -euo pipefail
 
@@ -12,7 +12,7 @@ WRAPPER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
 VENV_PYTHON="$CLIENT_DIR/venv/bin/python"
 
-SERVICE_NAME="agent-launcher"
+SERVICE_NAME="xavier"
 SLEEP_BETWEEN_STEPS="${SLEEP_BETWEEN_STEPS:-3}"
 DIAG_TIMEOUT_SECONDS="${DIAG_TIMEOUT_SECONDS:-120}"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -73,7 +73,7 @@ if sudo systemd-run \
     --service-type=oneshot \
     --property=User="$SERVICE_USER" \
     --property=WorkingDirectory="$CLIENT_DIR" \
-    --property=EnvironmentFile=/etc/default/agent-launcher \
+    --property=EnvironmentFile=/etc/default/xavier \
     --property=Environment="PYTHONPATH=$CLIENT_DIR" \
     --property=TimeoutStartSec="${DIAG_TIMEOUT_SECONDS}" \
     "$VENV_PYTHON" \

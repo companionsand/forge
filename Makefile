@@ -23,7 +23,7 @@ help:
 	@echo "  (Push branch; set GIT_BRANCH=... in .env so reboot pulls that branch.)"
 	@echo ""
 	@echo "Boot auto-start:"
-	@echo "  make enable-boot      Enable agent-launcher + otelcol on reboot"
+	@echo "  make enable-boot      Enable xavier + otelcol on reboot"
 	@echo "  make disable-boot     Disable both (no auto-start after reboot)"
 	@echo ""
 	@echo "  make install          Initial setup (./install.sh)"
@@ -31,19 +31,19 @@ help:
 	@echo "  make uninstall        Remove services and client (prompts)"
 	@echo "  make uninstall-y      Same as uninstall, no prompts (-y)"
 	@echo ""
-	@echo "  make start            sudo systemctl start agent-launcher"
-	@echo "  make stop             sudo systemctl stop agent-launcher"
-	@echo "  make restart          sudo systemctl restart agent-launcher"
-	@echo "  make status           systemctl status agent-launcher"
+	@echo "  make start            sudo systemctl start xavier"
+	@echo "  make stop             sudo systemctl stop xavier"
+	@echo "  make restart          sudo systemctl restart xavier"
+	@echo "  make status           systemctl status xavier"
 	@echo ""
 	@echo "  make start-otel       sudo systemctl start otelcol"
 	@echo "  make stop-otel        sudo systemctl stop otelcol"
 	@echo "  make restart-otel     sudo systemctl restart otelcol"
 	@echo "  make status-otel      systemctl status otelcol"
 	@echo ""
-	@echo "  make logs             Last 80 lines, agent-launcher"
-	@echo "  make logs-follow      Follow agent-launcher journal"
-	@echo "  make logs-all         Follow agent-launcher + otelcol"
+	@echo "  make logs             Last 80 lines, xavier"
+	@echo "  make logs-follow      Follow xavier journal"
+	@echo "  make logs-all         Follow xavier + otelcol"
 	@echo "  make logs-otel        Last 80 lines, otelcol"
 	@echo "  make logs-otel-follow Follow otelcol journal"
 	@echo ""
@@ -69,10 +69,10 @@ reinstall:
 	./reinstall.sh
 
 start:
-	$(SUDO) systemctl start agent-launcher
+	$(SUDO) systemctl start xavier
 
 stop:
-	$(SUDO) systemctl stop agent-launcher
+	$(SUDO) systemctl stop xavier
 
 stop-dev: stop
 	@echo ""
@@ -80,19 +80,19 @@ stop-dev: stop
 	@$(MAKE) --no-print-directory boot-status
 
 boot-status:
-	@echo 'agent-launcher:'
-	@systemctl show agent-launcher -p UnitFileState -p ActiveState --no-pager 2>/dev/null \
+	@echo 'xavier:'
+	@systemctl show xavier -p UnitFileState -p ActiveState --no-pager 2>/dev/null \
 		|| echo '  (unit not found — run make install)'
 	@echo 'otelcol:'
 	@systemctl show otelcol -p UnitFileState -p ActiveState --no-pager 2>/dev/null \
 		|| echo '  (unit not found — run make install)'
 
 enable-boot:
-	$(SUDO) systemctl enable agent-launcher otelcol
+	$(SUDO) systemctl enable xavier otelcol
 	@echo "Enabled for boot (does not start units now unless already running)."
 
 disable-boot:
-	$(SUDO) systemctl disable agent-launcher otelcol
+	$(SUDO) systemctl disable xavier otelcol
 	@echo "Disabled for boot. Use: make enable-boot"
 
 show-branch:
@@ -103,10 +103,10 @@ show-branch:
 	fi
 
 restart:
-	$(SUDO) systemctl restart agent-launcher
+	$(SUDO) systemctl restart xavier
 
 status:
-	$(SUDO) systemctl status agent-launcher
+	$(SUDO) systemctl status xavier
 
 start-otel:
 	$(SUDO) systemctl start otelcol
@@ -121,13 +121,13 @@ status-otel:
 	$(SUDO) systemctl status otelcol
 
 logs:
-	$(SUDO) journalctl -u agent-launcher -n 80 --no-pager
+	$(SUDO) journalctl -u xavier -n 80 --no-pager
 
 logs-follow:
-	$(SUDO) journalctl -u agent-launcher -f
+	$(SUDO) journalctl -u xavier -f
 
 logs-all:
-	$(SUDO) journalctl -u agent-launcher -u otelcol -f
+	$(SUDO) journalctl -u xavier -u otelcol -f
 
 logs-otel:
 	$(SUDO) journalctl -u otelcol -n 80 --no-pager

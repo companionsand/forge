@@ -770,15 +770,28 @@ else
     exit 1
 fi
 
-# Step 9: Setup agent-launcher systemd service
-log_info "Setting up agent-launcher systemd service..."
+# Step 9: Setup xavier systemd service
+log_info "Setting up xavier systemd service..."
+
+# Retire legacy agent-launcher unit (renamed to xavier)
+if [ -f /etc/systemd/system/agent-launcher.service ]; then
+    log_info "Removing legacy agent-launcher systemd unit..."
+    sudo systemctl stop agent-launcher 2>/dev/null || true
+    sudo systemctl disable agent-launcher 2>/dev/null || true
+    sudo rm -f /etc/systemd/system/agent-launcher.service
+    sudo systemctl daemon-reload 2>/dev/null || true
+fi
+if [ -f /etc/default/agent-launcher ] && [ ! -f /etc/default/xavier ]; then
+    log_info "Migrating /etc/default/agent-launcher -> /etc/default/xavier"
+    sudo mv /etc/default/agent-launcher /etc/default/xavier
+fi
 
 configure_bluetoothd_battery_override
 
 # Generate environment file used by the systemd service
-AGENT_ENV_FILE="/etc/default/agent-launcher"
+AGENT_ENV_FILE="/etc/default/xavier"
 AGENT_UID="$(id -u "$USER")"
-log_info "Writing agent-launcher environment to $AGENT_ENV_FILE..."
+log_info "Writing xavier environment to $AGENT_ENV_FILE..."
 
 # ALSA-only mode - minimal environment
 sudo tee "$AGENT_ENV_FILE" > /dev/null <<EOF
@@ -789,22 +802,22 @@ AGENT_UID=$AGENT_UID
 EOF
 log_success "Environment file written"
 
-if [ -f "$WRAPPER_DIR/services/agent-launcher.service" ]; then
+if [ -f "$WRAPPER_DIR/services/xavier.service" ]; then
     log_info "Generating service file..."
     sed "s|/home/pi/forge|$WRAPPER_DIR|g" \
-        "$WRAPPER_DIR/services/agent-launcher.service" | \
-        sudo tee /etc/systemd/system/agent-launcher.service > /dev/null
+        "$WRAPPER_DIR/services/xavier.service" | \
+        sudo tee /etc/systemd/system/xavier.service > /dev/null
     
     # Update User= field if not running as pi
     if [ "$USER" != "pi" ]; then
-        sudo sed -i "s/User=pi/User=$USER/g" /etc/systemd/system/agent-launcher.service
+        sudo sed -i "s/User=pi/User=$USER/g" /etc/systemd/system/xavier.service
     fi
     
     sudo systemctl daemon-reload
-    sudo systemctl enable agent-launcher.service
-    log_success "Agent launcher service installed and enabled"
+    sudo systemctl enable xavier.service
+    log_success "Xavier service installed and enabled"
 else
-    log_error "Agent launcher service file not found at $WRAPPER_DIR/services/agent-launcher.service"
+    log_error "Xavier service template not found at $WRAPPER_DIR/services/xavier.service"
     exit 1
 fi
 
@@ -833,10 +846,10 @@ else
     log_warning "OpenTelemetry Collector service not enabled"
 fi
 
-if systemctl is-enabled --quiet agent-launcher; then
-    log_success "Agent launcher service enabled"
+if systemctl is-enabled --quiet xavier; then
+    log_success "Xavier service enabled"
 else
-    log_warning "Agent launcher service not enabled"
+    log_warning "Xavier service not enabled"
 fi
 
 # Step 10: Start services and verify installation
@@ -847,8 +860,8 @@ log_info "Starting services and verifying installation..."
 sudo systemctl start otelcol
 sleep 2
 
-# Start agent launcher
-sudo systemctl start agent-launcher
+# Start Xavier
+sudo systemctl start xavier
 
 # Give services adequate time to initialize and potentially fail
 log_info "Waiting 30 seconds for services to stabilize..."
@@ -869,31 +882,31 @@ verify_installation() {
         log_success "OpenTelemetry Collector running"
     fi
     
-    # Check agent-launcher - more thorough check
-    LAUNCHER_STATE=$(systemctl is-active agent-launcher 2>/dev/null || echo "inactive")
-    LAUNCHER_FAILED=$(systemctl is-failed agent-launcher 2>/dev/null && echo "yes" || echo "no")
+    # Check Xavier - more thorough check
+    LAUNCHER_STATE=$(systemctl is-active xavier 2>/dev/null || echo "inactive")
+    LAUNCHER_FAILED=$(systemctl is-failed xavier 2>/dev/null && echo "yes" || echo "no")
     
     if [ "$LAUNCHER_STATE" != "active" ] || [ "$LAUNCHER_FAILED" = "yes" ]; then
-        error_messages+=("Agent launcher failed to start or exited with error")
+        error_messages+=("Xavier failed to start or exited with error")
         failed=true
     else
         # Double-check it's actually running and not about to fail
         sleep 5
-        LAUNCHER_STATE_RECHECK=$(systemctl is-active agent-launcher 2>/dev/null || echo "inactive")
+        LAUNCHER_STATE_RECHECK=$(systemctl is-active xavier 2>/dev/null || echo "inactive")
         if [ "$LAUNCHER_STATE_RECHECK" != "active" ]; then
-            error_messages+=("Agent launcher was active but then failed")
+            error_messages+=("Xavier was active but then failed")
             failed=true
         else
-            log_success "Agent launcher running"
+            log_success "Xavier running"
         fi
     fi
     
-    # Check for errors in agent-launcher logs
-    if sudo journalctl -u agent-launcher --since "30 seconds ago" -n 50 2>/dev/null | grep -iE "error|traceback|failed" | grep -v "paInvalidSampleRate" &>/dev/null; then
-        error_messages+=("Agent launcher has errors in logs")
+    # Check for errors in xavier logs
+    if sudo journalctl -u xavier --since "30 seconds ago" -n 50 2>/dev/null | grep -iE "error|traceback|failed" | grep -v "paInvalidSampleRate" &>/dev/null; then
+        error_messages+=("Xavier has errors in logs")
         failed=true
     else
-        log_success "Agent launcher logs clean"
+        log_success "Xavier logs clean"
     fi
     
     if [ "$failed" = true ]; then
@@ -906,9 +919,9 @@ verify_installation() {
         done
         echo ""
         
-        log_info "Showing recent agent-launcher logs:"
+        log_info "Showing recent Xavier logs:"
         echo "========================================="
-        sudo journalctl -u agent-launcher --since "1 minute ago" -n 100 --no-pager
+        sudo journalctl -u xavier --since "1 minute ago" -n 100 --no-pager
         echo "========================================="
         echo ""
         
@@ -918,8 +931,8 @@ verify_installation() {
         log_info "Review logs above to ensure issues are expected."
         echo ""
         log_info "If you encounter persistent problems, you can:"
-        log_info "  - Check logs: sudo journalctl -u agent-launcher -f"
-        log_info "  - Restart service: sudo systemctl restart agent-launcher"
+        log_info "  - Check logs: sudo journalctl -u xavier -f"
+        log_info "  - Restart service: sudo systemctl restart xavier"
         log_info "  - Reinstall: ./uninstall.sh followed by ./install.sh"
         echo ""
         
@@ -957,7 +970,7 @@ echo "Device Authentication System Active"
 echo ""
 echo "Services are now running:"
 echo "   - OpenTelemetry Collector: Active"
-echo "   - Agent Launcher: Active"
+echo "   - Xavier: Active"
 echo ""
 echo "Authentication:"
 echo "   - Device ID: $DEVICE_ID_INPUT"
@@ -966,10 +979,10 @@ echo "   - All API keys fetched from backend automatically"
 echo ""
 echo "Next Steps:"
 echo "   1. View logs to monitor the client:"
-echo "      sudo journalctl -u agent-launcher -f"
+echo "      sudo journalctl -u xavier -f"
 echo ""
 echo "   2. Check service status:"
-echo "      sudo systemctl status agent-launcher"
+echo "      sudo systemctl status xavier"
 echo ""
 echo "   3. If device is not paired with a user yet:"
 echo "      Go to admin portal -> Device Management"
@@ -990,7 +1003,7 @@ echo "   If the client crashes or errors, it will automatically restart."
 echo "   The system will keep trying to run the client indefinitely."
 echo ""
 echo "Boot Behavior:"
-echo "   On every boot, the agent launcher will:"
+echo "   On every boot, Xavier will:"
 echo "     - Wait for internet connection"
 echo "     - Update code from git"
 echo "     - Install dependencies"

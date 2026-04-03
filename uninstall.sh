@@ -78,11 +78,18 @@ echo ""
 # Step 1: Stop all services
 log_info "Stopping services..."
 
+if systemctl is-active --quiet xavier 2>/dev/null; then
+    sudo systemctl stop xavier
+    log_success "Stopped xavier service"
+else
+    log_info "xavier service not running"
+fi
+
 if systemctl is-active --quiet agent-launcher 2>/dev/null; then
     sudo systemctl stop agent-launcher
-    log_success "Stopped agent-launcher service"
+    log_success "Stopped legacy agent-launcher service"
 else
-    log_info "agent-launcher service not running"
+    log_info "legacy agent-launcher service not running"
 fi
 
 if systemctl is-active --quiet otelcol 2>/dev/null; then
@@ -95,9 +102,14 @@ fi
 # Step 2: Disable all services
 log_info "Disabling services..."
 
+if systemctl is-enabled --quiet xavier 2>/dev/null; then
+    sudo systemctl disable xavier
+    log_success "Disabled xavier service"
+fi
+
 if systemctl is-enabled --quiet agent-launcher 2>/dev/null; then
     sudo systemctl disable agent-launcher
-    log_success "Disabled agent-launcher service"
+    log_success "Disabled legacy agent-launcher service"
 fi
 
 if systemctl is-enabled --quiet otelcol 2>/dev/null; then
@@ -108,9 +120,14 @@ fi
 # Step 3: Remove systemd service files
 log_info "Removing systemd service files..."
 
+if [ -f "/etc/systemd/system/xavier.service" ]; then
+    sudo rm /etc/systemd/system/xavier.service
+    log_success "Removed xavier.service"
+fi
+
 if [ -f "/etc/systemd/system/agent-launcher.service" ]; then
     sudo rm /etc/systemd/system/agent-launcher.service
-    log_success "Removed agent-launcher.service"
+    log_success "Removed legacy agent-launcher.service"
 fi
 
 if [ -f "/etc/systemd/system/otelcol.service" ]; then
@@ -119,9 +136,14 @@ if [ -f "/etc/systemd/system/otelcol.service" ]; then
 fi
 
 # Remove environment file
+if [ -f "/etc/default/xavier" ]; then
+    sudo rm /etc/default/xavier
+    log_success "Removed xavier environment file"
+fi
+
 if [ -f "/etc/default/agent-launcher" ]; then
     sudo rm /etc/default/agent-launcher
-    log_success "Removed agent-launcher environment file"
+    log_success "Removed legacy agent-launcher environment file"
 fi
 
 # Step 4: Reload systemd
@@ -247,11 +269,12 @@ echo ""
 echo "Summary of removed components:"
 echo ""
 echo "Services stopped and disabled:"
-echo "  - agent-launcher.service"
+echo "  - xavier.service"
 echo "  - otelcol.service"
+echo "  (and legacy agent-launcher.service if present)"
 echo ""
 echo "Service files removed:"
-echo "  - /etc/systemd/system/agent-launcher.service"
+echo "  - /etc/systemd/system/xavier.service"
 echo "  - /etc/systemd/system/otelcol.service"
 echo ""
 echo "OpenTelemetry Collector removed:"
@@ -301,7 +324,7 @@ if [ "$REMOVE_PACKAGES" != "yes" ]; then
 fi
 
 # Check for any remaining journal logs
-if sudo journalctl -u agent-launcher --no-pager -n 1 &>/dev/null; then
+if sudo journalctl -u xavier --no-pager -n 1 &>/dev/null || sudo journalctl -u agent-launcher --no-pager -n 1 &>/dev/null; then
     log_info "Service logs remain in system journal"
     log_info "To remove: sudo journalctl --rotate && sudo journalctl --vacuum-time=1s"
     echo ""
