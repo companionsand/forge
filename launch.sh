@@ -515,8 +515,8 @@ while true; do
     # Initialize activity file
     touch "$ACTIVITY_FILE"
     
-    # Start main.py in background so we can monitor it
-    python main.py &
+    # Start main.py with venv interpreter (bare `python` may be system PEP 668 env without deps)
+    "$VENV_PYTHON" main.py &
     MAIN_PID=$!
     
     log_info "main.py started (PID: $MAIN_PID)"
