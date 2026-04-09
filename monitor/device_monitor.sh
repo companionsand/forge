@@ -306,6 +306,7 @@ run_network_speed_test() {
     local internet_available=$(check_internet_available)
 
     if [ "$internet_available" != "true" ]; then
+        log_error "Skipping network speed test: internet unavailable"
         python3 <<EOF
 import json
 print(json.dumps({
@@ -319,6 +320,7 @@ EOF
 
     local config_response=$(get_network_speed_test_config)
     if [ -z "$config_response" ]; then
+        log_error "Network speed test config request returned empty response"
         python3 <<EOF
 import json
 print(json.dumps({
@@ -355,7 +357,10 @@ except Exception:
     local upload_bytes=""
     IFS=$'\t' read -r download_url upload_url upload_token upload_bucket upload_path download_bytes upload_bytes <<< "$config_fields"
 
-    if [ -z "$download_url" ] || [ -z "$upload_url" ] || [ -z "$upload_token" ] || [ -z "$upload_bytes" ]; then
+    log_info "Network speed test config summary: download_url=$([ -n "$download_url" ] && echo yes || echo no), upload_url=$([ -n "$upload_url" ] && echo yes || echo no), upload_token=$([ -n "$upload_token" ] && echo yes || echo no), download_bytes=${download_bytes:-missing}, upload_bytes=${upload_bytes:-missing}, upload_path=${upload_path:-missing}"
+
+    if [ -z "$download_url" ] || [ -z "$upload_url" ] || [ -z "$upload_bytes" ]; then
+        log_error "Network speed test config incomplete: $config_response"
         python3 <<EOF
 import json
 print(json.dumps({
@@ -367,6 +372,7 @@ EOF
         return 0
     fi
 
+    log_info "Starting network speed test download"
     local download_stats=$(curl -L -sS --max-time "$SPEED_TEST_TIMEOUT" \
         -o /dev/null \
         -w "%{http_code} %{size_download} %{time_total} %{time_starttransfer}" \
@@ -377,7 +383,10 @@ EOF
     local download_ttfb="0"
     read -r download_http_code download_size download_time download_ttfb <<< "$download_stats"
 
+    log_info "Download speed test result: http_code=${download_http_code:-missing}, bytes=${download_size:-0}, time=${download_time:-0}, ttfb=${download_ttfb:-0}"
+
     if [ -z "$download_http_code" ] || [ "$download_http_code" -lt 200 ] || [ "$download_http_code" -ge 300 ] || [ -z "$download_time" ] || [ "$download_time" = "0" ]; then
+        log_error "Download speed test failed"
         python3 <<EOF
 import json
 print(json.dumps({
@@ -401,6 +410,7 @@ EOF
         fi
     fi
 
+    log_info "Starting network speed test upload to ${upload_path:-unknown-path}"
     local upload_stats=$(curl -sS --max-time "$SPEED_TEST_TIMEOUT" \
         -X PUT \
         -H "Content-Type: application/octet-stream" \
@@ -416,7 +426,10 @@ EOF
     local upload_time="0"
     read -r upload_http_code upload_size upload_time <<< "$upload_stats"
 
+    log_info "Upload speed test result: http_code=${upload_http_code:-missing}, bytes=${upload_size:-0}, time=${upload_time:-0}"
+
     if [ -z "$upload_http_code" ] || [ "$upload_http_code" -lt 200 ] || [ "$upload_http_code" -ge 300 ] || [ -z "$upload_time" ] || [ "$upload_time" = "0" ]; then
+        log_error "Upload speed test failed"
         python3 <<EOF
 import json
 print(json.dumps({
@@ -431,6 +444,7 @@ EOF
         return 0
     fi
 
+    log_success "Network speed test completed successfully"
     python3 <<EOF
 import json
 print(json.dumps({
@@ -545,10 +559,6 @@ EOF
         return 1
     fi
 
-    if [ -n "$network_speed_test" ]; then
-        PENDING_NETWORK_SPEED_TEST=""
-    fi
-
     echo "$response"
 }
 
@@ -654,8 +664,23 @@ while true; do
     fi
     
     # Send heartbeat
+    had_pending_network_speed_test="false"
+    if [ -n "$PENDING_NETWORK_SPEED_TEST" ]; then
+        had_pending_network_speed_test="true"
+    fi
     response=$(send_heartbeat "$include_logs")
+    send_status=$?
+
+    if [ $send_status -eq 0 ] && [ "$had_pending_network_speed_test" = "true" ]; then
+        log_info "Clearing queued network speed test result after successful heartbeat"
+        PENDING_NETWORK_SPEED_TEST=""
+    fi
     
+    if [ $send_status -ne 0 ]; then
+        sleep $POLL_INTERVAL
+        continue
+    fi
+
     if [ -z "$response" ]; then
         log_error "Empty heartbeat response"
         sleep $POLL_INTERVAL
