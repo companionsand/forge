@@ -54,12 +54,16 @@ ORCHESTRATOR_HTTP_URL=$(echo "$ORCHESTRATOR_URL" | sed 's|wss://|https://|' | se
 # Timing configuration
 POLL_INTERVAL=10       # Poll for interventions every 10 seconds
 LOG_INTERVAL=60        # Send logs every 60 seconds
+SPEED_TEST_INTERVAL=3600  # Run full network speed test every hour
+SPEED_TEST_TIMEOUT=30  # Per-request timeout in seconds
 LOG_LINES=100          # Number of log lines to send
 
 # State
 JWT_TOKEN=""
 JWT_EXPIRES_AT=0
 LAST_LOG_SEND=0
+LAST_SPEED_TEST_RUN=0
+PENDING_NETWORK_SPEED_TEST=""
 
 # Check required configuration
 if [ -z "$DEVICE_ID" ] || [ -z "$DEVICE_PRIVATE_KEY" ]; then
@@ -156,6 +160,14 @@ get_logs() {
     journalctl -u xavier --no-pager -n $LOG_LINES 2>/dev/null || echo "Unable to retrieve logs"
 }
 
+check_internet_available() {
+    if ping -c 1 -W 5 8.8.8.8 >/dev/null 2>&1; then
+        echo "true"
+    else
+        echo "false"
+    fi
+}
+
 # Function to collect device metrics
 collect_metrics() {
     local metrics_json=""
@@ -207,10 +219,7 @@ collect_metrics() {
     fi
     
     # Internet Available (ping 8.8.8.8 with 5 sec timeout)
-    local internet_available="false"
-    if ping -c 1 -W 5 8.8.8.8 >/dev/null 2>&1; then
-        internet_available="true"
-    fi
+    local internet_available=$(check_internet_available)
     
     # WiFi Signal Strength (try iwconfig first as it's more reliable on RPi)
     local wifi_strength=0
@@ -287,11 +296,163 @@ EOF
     echo "$metrics_json"
 }
 
+get_network_speed_test_config() {
+    curl -s -X GET "$ORCHESTRATOR_HTTP_URL/device/network-speed-test/config" \
+        -H "Authorization: Bearer $JWT_TOKEN" 2>/dev/null
+}
+
+run_network_speed_test() {
+    local measured_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local internet_available=$(check_internet_available)
+
+    if [ "$internet_available" != "true" ]; then
+        python3 <<EOF
+import json
+print(json.dumps({
+    "measured_at": "$measured_at",
+    "status": "skipped",
+    "error_message": "Internet unavailable before speed test started"
+}))
+EOF
+        return 0
+    fi
+
+    local config_response=$(get_network_speed_test_config)
+    if [ -z "$config_response" ]; then
+        python3 <<EOF
+import json
+print(json.dumps({
+    "measured_at": "$measured_at",
+    "status": "failed",
+    "error_message": "Failed to fetch network speed test config"
+}))
+EOF
+        return 0
+    fi
+
+    local config_fields=$(echo "$config_response" | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    print("\t".join([
+        data.get("download_url", ""),
+        data.get("upload_signed_url", "") or "",
+        data.get("upload_signed_token", "") or "",
+        data.get("upload_storage_bucket", "") or "",
+        data.get("upload_storage_path", "") or "",
+        str(data.get("download_bytes", "")),
+        str(data.get("upload_bytes", "")),
+    ]))
+except Exception:
+    pass
+' 2>/dev/null)
+    local download_url=""
+    local upload_url=""
+    local upload_token=""
+    local upload_bucket=""
+    local upload_path=""
+    local download_bytes=""
+    local upload_bytes=""
+    IFS=$'\t' read -r download_url upload_url upload_token upload_bucket upload_path download_bytes upload_bytes <<< "$config_fields"
+
+    if [ -z "$download_url" ] || [ -z "$upload_url" ] || [ -z "$upload_token" ] || [ -z "$upload_bytes" ]; then
+        python3 <<EOF
+import json
+print(json.dumps({
+    "measured_at": "$measured_at",
+    "status": "failed",
+    "error_message": "Network speed test config was incomplete"
+}))
+EOF
+        return 0
+    fi
+
+    local download_stats=$(curl -L -sS --max-time "$SPEED_TEST_TIMEOUT" \
+        -o /dev/null \
+        -w "%{http_code} %{size_download} %{time_total} %{time_starttransfer}" \
+        "$download_url" 2>/dev/null)
+    local download_http_code=""
+    local download_size="0"
+    local download_time="0"
+    local download_ttfb="0"
+    read -r download_http_code download_size download_time download_ttfb <<< "$download_stats"
+
+    if [ -z "$download_http_code" ] || [ "$download_http_code" -lt 200 ] || [ "$download_http_code" -ge 300 ] || [ -z "$download_time" ] || [ "$download_time" = "0" ]; then
+        python3 <<EOF
+import json
+print(json.dumps({
+    "measured_at": "$measured_at",
+    "status": "failed",
+    "error_message": "Download speed test failed"
+}))
+EOF
+        return 0
+    fi
+
+    local upload_file=$(mktemp "/tmp/network-speed-upload.XXXXXX.bin")
+    dd if=/dev/urandom of="$upload_file" bs="$upload_bytes" count=1 status=none 2>/dev/null
+
+    local upload_request_url="$upload_url"
+    if [ -n "$upload_token" ] && [[ "$upload_request_url" != *"token="* ]]; then
+        if [[ "$upload_request_url" == *\?* ]]; then
+            upload_request_url="${upload_request_url}&token=${upload_token}"
+        else
+            upload_request_url="${upload_request_url}?token=${upload_token}"
+        fi
+    fi
+
+    local upload_stats=$(curl -sS --max-time "$SPEED_TEST_TIMEOUT" \
+        -X PUT \
+        -H "Content-Type: application/octet-stream" \
+        -H "x-upsert: false" \
+        --data-binary @"$upload_file" \
+        -o /dev/null \
+        -w "%{http_code} %{size_upload} %{time_total}" \
+        "$upload_request_url" 2>/dev/null)
+    rm -f "$upload_file"
+
+    local upload_http_code=""
+    local upload_size="0"
+    local upload_time="0"
+    read -r upload_http_code upload_size upload_time <<< "$upload_stats"
+
+    if [ -z "$upload_http_code" ] || [ "$upload_http_code" -lt 200 ] || [ "$upload_http_code" -ge 300 ] || [ -z "$upload_time" ] || [ "$upload_time" = "0" ]; then
+        python3 <<EOF
+import json
+print(json.dumps({
+    "measured_at": "$measured_at",
+    "status": "failed",
+    "latency_ms": round(float("$download_ttfb") * 1000, 2),
+    "download_mbps": round((float("$download_size") * 8) / float("$download_time") / 1000000, 2),
+    "download_bytes": int(float("$download_size")),
+    "error_message": "Upload speed test failed"
+}))
+EOF
+        return 0
+    fi
+
+    python3 <<EOF
+import json
+print(json.dumps({
+    "measured_at": "$measured_at",
+    "status": "ok",
+    "latency_ms": round(float("$download_ttfb") * 1000, 2),
+    "download_mbps": round((float("$download_size") * 8) / float("$download_time") / 1000000, 2),
+    "upload_mbps": round((float("$upload_size") * 8) / float("$upload_time") / 1000000, 2),
+    "download_bytes": int(float("$download_size")),
+    "upload_bytes": int(float("$upload_size")),
+    "upload_storage_bucket": "$upload_bucket",
+    "upload_storage_path": "$upload_path"
+}))
+EOF
+}
+
 # Function to send heartbeat
 send_heartbeat() {
     local include_logs=$1
     local logs=""
     local metrics=""
+    local network_speed_test=""
     local firmware_version=""
     local volume=""
     
@@ -302,6 +463,9 @@ send_heartbeat() {
         
         # Also collect metrics when sending logs (every 60 seconds)
         metrics=$(collect_metrics)
+    fi
+    if [ -n "$PENDING_NETWORK_SPEED_TEST" ]; then
+        network_speed_test="$PENDING_NETWORK_SPEED_TEST"
     fi
 
     # Device state for heartbeat: volume every 10s, firmware on log heartbeats.
@@ -326,6 +490,7 @@ import json
 import subprocess
 logs = """$logs"""
 metrics_json = '''$metrics'''
+network_speed_test_json = '''$network_speed_test'''
 include_logs = """$include_logs"""
 data = {}
 if include_logs == "true":
@@ -335,8 +500,13 @@ if include_logs == "true":
             data["metrics"] = json.loads(metrics_json)
         except Exception:
             pass
-    if """$firmware_version""":
-        data["firmware_version"] = """$firmware_version"""
+if network_speed_test_json:
+    try:
+        data["network_speed_test"] = json.loads(network_speed_test_json)
+    except Exception:
+        pass
+if """$firmware_version""":
+    data["firmware_version"] = """$firmware_version"""
 wifi_ssid = ""
 for iwgetid_cmd in ["/usr/sbin/iwgetid", "/sbin/iwgetid", "iwgetid"]:
     try:
@@ -356,17 +526,29 @@ if vol and str(vol).isdigit():
 print(json.dumps(data))
 EOF
     )
-    
-    local response=$(curl -s -X POST "$ORCHESTRATOR_HTTP_URL/device/heartbeat" \
+
+    local response_with_status=$(curl -s -w "\n%{http_code}" -X POST "$ORCHESTRATOR_HTTP_URL/device/heartbeat" \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer $JWT_TOKEN" \
         -d "$body" 2>/dev/null)
-    
+
     if [ $? -ne 0 ]; then
         log_error "Heartbeat request failed"
         return 1
     fi
-    
+
+    local http_code=$(echo "$response_with_status" | tail -n 1)
+    local response=$(echo "$response_with_status" | sed '$d')
+
+    if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+        log_error "Heartbeat request failed with status $http_code"
+        return 1
+    fi
+
+    if [ -n "$network_speed_test" ]; then
+        PENDING_NETWORK_SPEED_TEST=""
+    fi
+
     echo "$response"
 }
 
@@ -463,6 +645,12 @@ while true; do
     if [ $((now - LAST_LOG_SEND)) -ge $LOG_INTERVAL ]; then
         include_logs="true"
         LAST_LOG_SEND=$now
+    fi
+
+    if [ "$include_logs" = "true" ] && [ $((now - LAST_SPEED_TEST_RUN)) -ge $SPEED_TEST_INTERVAL ]; then
+        log_info "Running hourly network speed test..."
+        PENDING_NETWORK_SPEED_TEST=$(run_network_speed_test)
+        LAST_SPEED_TEST_RUN=$now
     fi
     
     # Send heartbeat
