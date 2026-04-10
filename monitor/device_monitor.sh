@@ -466,7 +466,6 @@ send_heartbeat() {
     local include_logs=$1
     local logs=""
     local metrics=""
-    local network_speed_test=""
     local firmware_version=""
     local volume=""
     
@@ -478,10 +477,6 @@ send_heartbeat() {
         # Also collect metrics when sending logs (every 60 seconds)
         metrics=$(collect_metrics)
     fi
-    if [ -n "$PENDING_NETWORK_SPEED_TEST" ]; then
-        network_speed_test="$PENDING_NETWORK_SPEED_TEST"
-    fi
-
     # Device state for heartbeat: volume every 10s, firmware on log heartbeats.
     if command -v amixer >/dev/null 2>&1; then
         for card in 0 1 2 3 4 5; do
@@ -504,7 +499,6 @@ import json
 import subprocess
 logs = """$logs"""
 metrics_json = '''$metrics'''
-network_speed_test_json = '''$network_speed_test'''
 include_logs = """$include_logs"""
 data = {}
 if include_logs == "true":
@@ -514,11 +508,6 @@ if include_logs == "true":
             data["metrics"] = json.loads(metrics_json)
         except Exception:
             pass
-if network_speed_test_json:
-    try:
-        data["network_speed_test"] = json.loads(network_speed_test_json)
-    except Exception:
-        pass
 if """$firmware_version""":
     data["firmware_version"] = """$firmware_version"""
 wifi_ssid = ""
@@ -560,6 +549,34 @@ EOF
     fi
 
     echo "$response"
+}
+
+send_network_speed_test() {
+    local payload=$1
+
+    if [ -z "$payload" ]; then
+        return 1
+    fi
+
+    local response_with_status=$(curl -s -w "\n%{http_code}" -X POST "$ORCHESTRATOR_HTTP_URL/device/network-speed-test" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $JWT_TOKEN" \
+        -d "$payload" 2>/dev/null)
+
+    if [ $? -ne 0 ]; then
+        log_error "Network speed test submit failed"
+        return 1
+    fi
+
+    local http_code=$(echo "$response_with_status" | tail -n 1)
+
+    if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+        log_error "Network speed test submit failed with status $http_code"
+        return 1
+    fi
+
+    log_info "Network speed test submitted successfully"
+    return 0
 }
 
 # Function to update intervention status
@@ -664,16 +681,14 @@ while true; do
     fi
     
     # Send heartbeat
-    had_pending_network_speed_test="false"
-    if [ -n "$PENDING_NETWORK_SPEED_TEST" ]; then
-        had_pending_network_speed_test="true"
-    fi
     response=$(send_heartbeat "$include_logs")
     send_status=$?
 
-    if [ $send_status -eq 0 ] && [ "$had_pending_network_speed_test" = "true" ]; then
-        log_info "Clearing queued network speed test result after successful heartbeat"
-        PENDING_NETWORK_SPEED_TEST=""
+    if [ -n "$PENDING_NETWORK_SPEED_TEST" ]; then
+        if send_network_speed_test "$PENDING_NETWORK_SPEED_TEST"; then
+            log_info "Clearing queued network speed test result after successful submit"
+            PENDING_NETWORK_SPEED_TEST=""
+        fi
     fi
     
     if [ $send_status -ne 0 ]; then
