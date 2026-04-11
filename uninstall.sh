@@ -117,6 +117,11 @@ if systemctl is-enabled --quiet otelcol 2>/dev/null; then
     log_success "Disabled otelcol service"
 fi
 
+if systemctl is-enabled --quiet device-monitor 2>/dev/null; then
+    sudo systemctl disable device-monitor
+    log_success "Disabled device-monitor service"
+fi
+
 # Step 3: Remove systemd service files
 log_info "Removing systemd service files..."
 
@@ -133,6 +138,11 @@ fi
 if [ -f "/etc/systemd/system/otelcol.service" ]; then
     sudo rm /etc/systemd/system/otelcol.service
     log_success "Removed otelcol.service"
+fi
+
+if [ -f "/etc/systemd/system/device-monitor.service" ]; then
+    sudo rm /etc/systemd/system/device-monitor.service
+    log_success "Removed device-monitor.service"
 fi
 
 # Remove environment file

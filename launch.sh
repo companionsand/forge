@@ -408,14 +408,16 @@ fi
 
 log_success "Configuration file found"
 
-# Step 6: Start device monitor in background (for remote interventions)
-log_info "Starting device monitor in background..."
-if [ -f "$WRAPPER_DIR/monitor/device_monitor.sh" ]; then
+# Step 6: Start device monitor only as a legacy fallback.
+# New installs run it via its own systemd unit with automatic restart and logs.
+if systemctl is-enabled --quiet device-monitor 2>/dev/null || systemctl is-active --quiet device-monitor 2>/dev/null; then
+    log_info "Dedicated device-monitor service detected; skipping inline monitor launch"
+elif [ -f "$WRAPPER_DIR/monitor/device_monitor.sh" ]; then
+    log_info "Starting device monitor in background (legacy fallback)..."
     chmod +x "$WRAPPER_DIR/monitor/device_monitor.sh"
-    # Start monitor in background, redirect output to journal via logger
     "$WRAPPER_DIR/monitor/device_monitor.sh" 2>&1 | logger -t device-monitor &
     MONITOR_PID=$!
-    log_success "Device monitor started (PID: $MONITOR_PID)"
+    log_success "Legacy device monitor started (PID: $MONITOR_PID)"
 else
     log_info "Device monitor script not found, skipping..."
 fi

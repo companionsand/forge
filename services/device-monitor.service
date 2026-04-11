@@ -1,0 +1,34 @@
+[Unit]
+Description=Kin device heartbeat monitor
+Documentation=https://github.com/companionsand/raspberry-pi-client
+After=network-online.target xavier.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/forge
+ExecStart=/bin/bash /home/pi/forge/monitor/device_monitor.sh
+
+# Share the same generated runtime environment as xavier.
+EnvironmentFile=/etc/default/xavier
+
+# Keep heartbeats/interventions resilient to transient failures.
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+StartLimitBurst=0
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=device-monitor
+
+# Environment
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+
+KillMode=control-group
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

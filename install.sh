@@ -830,8 +830,8 @@ else
     exit 1
 fi
 
-# Step 9: Setup xavier systemd service
-log_info "Setting up xavier systemd service..."
+# Step 9: Setup systemd services
+log_info "Setting up systemd services..."
 
 # Retire legacy agent-launcher unit (renamed to xavier)
 if [ -f /etc/systemd/system/agent-launcher.service ]; then
@@ -881,6 +881,24 @@ else
     exit 1
 fi
 
+if [ -f "$WRAPPER_DIR/services/device-monitor.service" ]; then
+    log_info "Generating device monitor service file..."
+    sed "s|/home/pi/forge|$WRAPPER_DIR|g" \
+        "$WRAPPER_DIR/services/device-monitor.service" | \
+        sudo tee /etc/systemd/system/device-monitor.service > /dev/null
+
+    if [ "$USER" != "pi" ]; then
+        sudo sed -i "s/User=pi/User=$USER/g" /etc/systemd/system/device-monitor.service
+    fi
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable device-monitor.service
+    log_success "Device monitor service installed and enabled"
+else
+    log_error "Device monitor service template not found at $WRAPPER_DIR/services/device-monitor.service"
+    exit 1
+fi
+
 # Step 11: Run production reliability setup
 echo ""
 log_info "Setting up production reliability features..."
@@ -912,6 +930,12 @@ else
     log_warning "Xavier service not enabled"
 fi
 
+if systemctl is-enabled --quiet device-monitor; then
+    log_success "Device monitor service enabled"
+else
+    log_warning "Device monitor service not enabled"
+fi
+
 # Step 10: Start services and verify installation
 echo ""
 log_info "Starting services and verifying installation..."
@@ -922,6 +946,9 @@ sleep 2
 
 # Start Xavier
 sudo systemctl start xavier
+
+# Start device monitor
+sudo systemctl start device-monitor
 
 # Give services adequate time to initialize and potentially fail
 log_info "Waiting 30 seconds for services to stabilize..."
@@ -959,6 +986,13 @@ verify_installation() {
         else
             log_success "Xavier running"
         fi
+
+    if ! systemctl is-active --quiet device-monitor; then
+        error_messages+=("Device monitor failed to start")
+        failed=true
+    else
+        log_success "Device monitor running"
+    fi
     fi
     
     # Check for errors in xavier logs
@@ -991,8 +1025,8 @@ verify_installation() {
         log_info "Review logs above to ensure issues are expected."
         echo ""
         log_info "If you encounter persistent problems, you can:"
-        log_info "  - Check logs: sudo journalctl -u xavier -f"
-        log_info "  - Restart service: sudo systemctl restart xavier"
+        log_info "  - Check logs: sudo journalctl -u xavier -u device-monitor -f"
+        log_info "  - Restart services: sudo systemctl restart xavier device-monitor"
         log_info "  - Reinstall: ./uninstall.sh followed by ./install.sh"
         echo ""
         
@@ -1031,6 +1065,7 @@ echo ""
 echo "Services are now running:"
 echo "   - OpenTelemetry Collector: Active"
 echo "   - Xavier: Active"
+echo "   - Device Monitor: Active"
 echo ""
 echo "Authentication:"
 echo "   - Device ID: $DEVICE_ID_INPUT"
@@ -1039,10 +1074,10 @@ echo "   - All API keys fetched from backend automatically"
 echo ""
 echo "Next Steps:"
 echo "   1. View logs to monitor the client:"
-echo "      sudo journalctl -u xavier -f"
+echo "      sudo journalctl -u xavier -u device-monitor -f"
 echo ""
 echo "   2. Check service status:"
-echo "      sudo systemctl status xavier"
+echo "      sudo systemctl status xavier device-monitor"
 echo ""
 echo "   3. If device is not paired with a user yet:"
 echo "      Go to admin portal -> Device Management"

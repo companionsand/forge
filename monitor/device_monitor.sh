@@ -7,7 +7,10 @@
 # - Sends logs every 60 seconds
 # - Executes interventions (restart, reinstall) when requested
 
-set -e
+# Keep the monitor alive across transient heartbeat/auth/network failures.
+# We intentionally avoid `set -e` here because individual loop iterations
+# already handle non-zero exit codes and should retry instead of exiting.
+set -uo pipefail
 
 # Get the actual directory where this script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
