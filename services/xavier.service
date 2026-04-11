@@ -4,6 +4,8 @@ Documentation=https://github.com/companionsand/raspberry-pi-client
 After=network-online.target otelcol.service
 Wants=network-online.target
 Requires=otelcol.service
+StartLimitIntervalSec=0
+StartLimitBurst=0
 
 [Service]
 Type=simple
@@ -17,8 +19,6 @@ EnvironmentFile=/etc/default/xavier
 # Auto-restart on crash/failure
 Restart=always
 RestartSec=10
-StartLimitIntervalSec=0
-StartLimitBurst=0
 
 # Logging
 StandardOutput=journal

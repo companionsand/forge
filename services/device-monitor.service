@@ -3,6 +3,8 @@ Description=Kin device heartbeat monitor
 Documentation=https://github.com/companionsand/raspberry-pi-client
 After=network-online.target xavier.service
 Wants=network-online.target
+StartLimitIntervalSec=0
+StartLimitBurst=0
 
 [Service]
 Type=simple
@@ -16,8 +18,6 @@ EnvironmentFile=/etc/default/xavier
 # Keep heartbeats/interventions resilient to transient failures.
 Restart=always
 RestartSec=5
-StartLimitIntervalSec=0
-StartLimitBurst=0
 
 # Logging
 StandardOutput=journal
