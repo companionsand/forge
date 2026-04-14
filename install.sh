@@ -1,6 +1,6 @@
 #!/bin/bash
-# Kin AI Raspberry Pi Client Wrapper - Installation Script
-# This script sets up all dependencies and services for the Kin AI client
+# Raspberry Pi client wrapper - installation script
+# This script sets up all dependencies and services for the Raspberry Pi client
 
 set -e
 
@@ -141,7 +141,7 @@ GIT_BRANCH=${GIT_BRANCH:-"main"}  # Default to main branch
 
 # Print header
 echo "========================================="
-echo "  Kin AI Raspberry Pi Client Installer  "
+echo "    Raspberry Pi client installer      "
 echo "========================================="
 echo ""
 
@@ -472,14 +472,16 @@ log_success "ALSA-only audio configuration complete"
 
 # Configure sudoers for BLE provisioning network operations
 log_info "Configuring sudoers for network operations..."
-sudo tee /etc/sudoers.d/kin-network > /dev/null <<'EOF'
+# Remove legacy filename from prior installs to avoid duplicate rules
+sudo rm -f /etc/sudoers.d/kin-network
+sudo tee /etc/sudoers.d/pi-network > /dev/null <<'EOF'
 # Allow pi user to run network commands without password for BLE provisioning
 pi ALL=(ALL) NOPASSWD: /usr/bin/nmcli
 pi ALL=(ALL) NOPASSWD: /usr/bin/ip
 pi ALL=(ALL) NOPASSWD: /usr/sbin/ip
 pi ALL=(ALL) NOPASSWD: /usr/bin/rfkill
 EOF
-sudo chmod 0440 /etc/sudoers.d/kin-network
+sudo chmod 0440 /etc/sudoers.d/pi-network
 log_success "Sudoers configured for network operations"
 
 # Setup udev rules for ReSpeaker LED access
@@ -585,7 +587,7 @@ fi
 log_info "Setting up repository..."
 
 # Configure git safe.directory for root user (required when service runs as root)
-# This prevents "dubious ownership" errors when root operates on kin-owned repos
+# This prevents "dubious ownership" errors when root operates on pi-owned repos
 log_info "Configuring git safe.directory for root..."
 sudo git config --global --add safe.directory "$WRAPPER_DIR" 2>/dev/null || true
 sudo git config --global --add safe.directory "$CLIENT_DIR" 2>/dev/null || true
@@ -760,7 +762,7 @@ if [ ! -f "$CLIENT_DIR/.env" ]; then
     log_info "Creating minimal .env file (device authentication)..."
     cat > "$CLIENT_DIR/.env" <<EOF
 # ============================================================================
-# Kin AI Raspberry Pi Client - Device Authentication
+# Raspberry Pi Client - Device Authentication
 # ============================================================================
 # This device uses the device authentication system.
 # All runtime configuration (API keys, wake word, etc.) is fetched from the

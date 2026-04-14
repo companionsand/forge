@@ -1,5 +1,5 @@
 #!/bin/bash
-# Kin AI Production Verification Script
+# Production verification script
 # Checks all production reliability settings
 # Reports status but NEVER fails/exits - safe for automated checks
 
@@ -26,7 +26,7 @@ log_fail() {
 }
 
 echo "========================================="
-echo "  Kin AI Production Settings Verification"
+echo "    Production settings verification    "
 echo "========================================="
 echo ""
 

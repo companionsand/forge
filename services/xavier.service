@@ -1,5 +1,5 @@
 [Unit]
-Description=Xavier (Kin AI agent launcher)
+Description=Xavier (Raspberry Pi client launcher)
 Documentation=https://github.com/companionsand/raspberry-pi-client
 After=network-online.target otelcol.service
 Wants=network-online.target

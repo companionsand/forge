@@ -1,5 +1,5 @@
 #!/bin/bash
-# Kin AI Raspberry Pi Client Wrapper - Uninstallation Script
+# Raspberry Pi client wrapper - uninstall script
 # This script removes all components installed by install.sh
 
 set -e
@@ -54,7 +54,7 @@ log_error() {
 # Print header
 echo ""
 echo "========================================="
-echo "  Kin AI Client - Uninstaller"
+echo "  Raspberry Pi client - uninstaller"
 echo "========================================="
 echo ""
 log_warning "This will remove ALL components installed by install.sh"

@@ -5,8 +5,14 @@
 # API endpoint for deploy key
 DEPLOY_KEY_API_BASE="${DEPLOY_KEY_API_BASE:-https://conversation-orchestrator.onrender.com}"
 
-# SSH key path
-SSH_KEY_PATH="$HOME/.ssh/kin_deploy_key"
+# SSH key path (new). Legacy path kept for in-place migration on existing devices.
+SSH_KEY_PATH="$HOME/.ssh/device_deploy_key"
+LEGACY_SSH_KEY_PATH="$HOME/.ssh/kin_deploy_key"
+# If only the legacy key exists, move it into place once so existing devices
+# keep working without re-fetching from the backend.
+if [ ! -f "$SSH_KEY_PATH" ] && [ -f "$LEGACY_SSH_KEY_PATH" ]; then
+    mv "$LEGACY_SSH_KEY_PATH" "$SSH_KEY_PATH" 2>/dev/null || true
+fi
 
 fetch_and_setup_deploy_key() {
     local device_id="$1"
@@ -121,12 +127,14 @@ PYEOF
     echo "$DEPLOY_KEY" > "$SSH_KEY_PATH"
     chmod 600 "$SSH_KEY_PATH"
     
-    # Configure SSH for GitHub (if not already configured)
-    if ! grep -q "# Kin Deploy Key" ~/.ssh/config 2>/dev/null; then
+    # Configure SSH for GitHub (if not already configured).
+    # Match either the legacy "# Kin Deploy Key" marker or the new
+    # "# Device deploy key" marker to stay idempotent across upgrades.
+    if ! grep -qE "# (Kin Deploy Key|Device deploy key)" ~/.ssh/config 2>/dev/null; then
         echo "[deploy-key] Adding SSH config for GitHub..."
         cat >> ~/.ssh/config << SSHEOF
 
-# Kin Deploy Key
+# Device deploy key
 Host github.com
     HostName github.com
     User git

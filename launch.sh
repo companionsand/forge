@@ -1,5 +1,5 @@
 #!/bin/bash
-# Kin AI Agent Launcher
+# Raspberry Pi client launcher
 # This script runs on boot to start the Raspberry Pi client
 
 set -e
@@ -118,7 +118,7 @@ ensure_bluetooth_noinput_agent() {
     fi
 
     log_info "Starting persistent BlueZ NoInputNoOutput agent..."
-    BT_AGENT_FIFO="$(mktemp -u "${TMPDIR:-/tmp}/kin-bt-agent.XXXXXX")"
+    BT_AGENT_FIFO="$(mktemp -u "${TMPDIR:-/tmp}/bt-agent.XXXXXX")"
     mkfifo "$BT_AGENT_FIFO"
     sudo bluetoothctl < "$BT_AGENT_FIFO" >/dev/null 2>&1 &
     BT_AGENT_PID=$!
@@ -194,10 +194,21 @@ GIT_BRANCH=${GIT_BRANCH:-"main"}
 BLE_DISCRIMINATOR=${BLE_DISCRIMINATOR:-""}
 BLE_NAME="Olympia_${BLE_DISCRIMINATOR:-SETUP}"
 
+# Demo mode toggle — when true, run demo.py instead of main.py.
+# Accepts: true/false, 1/0, yes/no (case-insensitive). Default: false.
+DEMO_MODE_RAW="${DEMO_MODE:-false}"
+case "$(echo "$DEMO_MODE_RAW" | tr '[:upper:]' '[:lower:]')" in
+    true|1|yes|on) DEMO_MODE=true ;;
+    *) DEMO_MODE=false ;;
+esac
+
 # Change to wrapper directory
 cd "$WRAPPER_DIR"
 
-log_info "Starting Kin AI Agent Launcher..."
+log_info "Starting Raspberry Pi client launcher..."
+if [ "$DEMO_MODE" = "true" ]; then
+    log_info "DEMO_MODE=true — will run demo.py instead of main.py"
+fi
 
 # Step 0: Enforce BLE adapter no-pairing policy before Python starts.
 # This avoids runtime delays/timeouts in the app process and makes behavior
@@ -291,7 +302,7 @@ else
     log_info "Repository found. Checking for updates..."
     
     # Ensure git safe.directory is configured for root (in case install.sh didn't set it)
-    # This prevents "dubious ownership" errors when service runs as root on kin-owned repos
+    # This prevents "dubious ownership" errors when service runs as root on pi-owned repos
     git config --global --add safe.directory "$WRAPPER_DIR" 2>/dev/null || true
     git config --global --add safe.directory "$CLIENT_DIR" 2>/dev/null || true
     
@@ -477,7 +488,7 @@ if [ "$CURRENT_YEAR" -lt "2024" ]; then
 fi
 
 # Step 14: Run the client with idle-time monitoring
-log_info "Starting Kin AI client with idle-time monitoring..."
+log_info "Starting Raspberry Pi client with idle-time monitoring..."
 log_info "Will restart after 3 hours of inactivity for updates"
 log_info "========================================="
 
@@ -509,19 +520,26 @@ check_idle_time() {
     fi
 }
 
-# Run main.py in a loop with idle-time monitoring
+# Select entrypoint: demo.py when DEMO_MODE=true, otherwise main.py
+if [ "$DEMO_MODE" = "true" ]; then
+    CLIENT_ENTRYPOINT="demo.py"
+else
+    CLIENT_ENTRYPOINT="main.py"
+fi
+
+# Run the entrypoint in a loop with idle-time monitoring
 while true; do
     ensure_bluetooth_noinput_agent
-    log_info "Starting main.py..."
-    
+    log_info "Starting $CLIENT_ENTRYPOINT..."
+
     # Initialize activity file
     touch "$ACTIVITY_FILE"
-    
-    # Start main.py with venv interpreter (bare `python` may be system PEP 668 env without deps)
-    "$VENV_PYTHON" main.py &
+
+    # Start the entrypoint with venv interpreter (bare `python` may be system PEP 668 env without deps)
+    "$VENV_PYTHON" "$CLIENT_ENTRYPOINT" &
     MAIN_PID=$!
-    
-    log_info "main.py started (PID: $MAIN_PID)"
+
+    log_info "$CLIENT_ENTRYPOINT started (PID: $MAIN_PID)"
     
     # Monitor process and idle time
     while kill -0 $MAIN_PID 2>/dev/null; do
@@ -544,10 +562,10 @@ while true; do
     
     if [ $exit_code -ne 0 ] && [ $exit_code -ne 143 ] && [ $exit_code -ne 137 ]; then
         # Non-zero exit that's not SIGTERM (143) or SIGKILL (137)
-        log_error "main.py exited with code $exit_code, restarting in 5 seconds..."
+        log_error "$CLIENT_ENTRYPOINT exited with code $exit_code, restarting in 5 seconds..."
         sleep 5
     else
-        log_info "main.py stopped, restarting..."
+        log_info "$CLIENT_ENTRYPOINT stopped, restarting..."
         sleep 2
     fi
     
