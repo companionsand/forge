@@ -18,7 +18,7 @@ DIAG_TIMEOUT_SECONDS="${DIAG_TIMEOUT_SECONDS:-120}"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 REPORT_DIR="$WRAPPER_DIR/diagnostics/reports"
 JSON_REPORT="$REPORT_DIR/device-diag-${TIMESTAMP}.json"
-UNIT_NAME="kin-device-diag-${TIMESTAMP}"
+UNIT_NAME="device-diag-${TIMESTAMP}"
 SERVICE_USER="$(systemctl show -p User --value "$SERVICE_NAME" 2>/dev/null || true)"
 SERVICE_USER="${SERVICE_USER:-pi}"
 

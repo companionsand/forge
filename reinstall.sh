@@ -1,5 +1,5 @@
 #!/bin/bash
-# Kin AI Raspberry Pi Client Wrapper - Reinstall Script
+# Raspberry Pi client wrapper - reinstall script
 # This script stops the service, uninstalls, and reinstalls
 
 set -e
@@ -28,7 +28,7 @@ log_error() {
 
 # Print header
 echo "========================================="
-echo "  Kin AI Client - Reinstaller"
+echo "  Raspberry Pi client - reinstaller"
 echo "========================================="
 echo ""
 

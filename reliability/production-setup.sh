@@ -1,5 +1,5 @@
 #!/bin/bash
-# Kin AI Production Setup Script
+# Production setup script
 # Configures production-grade reliability settings for 24/7 operation
 # This script is IDEMPOTENT - safe to run multiple times
 
@@ -28,7 +28,7 @@ log_error() {
 }
 
 echo "========================================="
-echo "  Kin AI Production Reliability Setup   "
+echo "   Production reliability setup         "
 echo "========================================="
 echo ""
 log_info "Configuring production-grade settings for 24/7 operation..."

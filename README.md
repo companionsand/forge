@@ -1,6 +1,6 @@
 # Raspberry Pi Client Wrapper
 
-A comprehensive wrapper for deploying and managing the Kin AI Raspberry Pi client. This wrapper handles all dependencies, services, and automatic updates.
+A comprehensive wrapper for deploying and managing the Raspberry Pi voice-assistant client. This wrapper handles all dependencies, services, and automatic updates.
 
 ## Simplified Device Authentication
 
@@ -19,7 +19,7 @@ A comprehensive wrapper for deploying and managing the Kin AI Raspberry Pi clien
 
 ## Overview
 
-This wrapper automates the setup and management of the Kin AI voice assistant client on Raspberry Pi with ReSpeaker. It handles:
+This wrapper automates the setup and management of the voice-assistant client on Raspberry Pi with ReSpeaker. It handles:
 
 - System dependency installation
 - OpenTelemetry collector setup with persistent logging
@@ -562,4 +562,4 @@ If you encounter issues:
 
 ## License
 
-Copyright © 2025 Kin AI. All rights reserved.
+Copyright © 2025. All rights reserved.

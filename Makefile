@@ -1,18 +1,20 @@
-# Kin AI Raspberry Pi client wrapper — common operations
+# forge — Raspberry Pi client wrapper common operations
 # Run from this directory (the wrapper root on the Pi).
 
 SUDO := sudo
 CLIENT_DIR := raspberry-pi-client
+ENV_FILE := .env
 
 .PHONY: help install uninstall uninstall-y reinstall \
 	start stop stop-dev restart status \
 	start-otel stop-otel restart-otel status-otel \
 	boot-status enable-boot disable-boot show-branch \
+	demo-on demo-off mode-status \
 	logs logs-follow logs-all logs-otel logs-otel-follow \
 	diagnostics daemon-reload pull-client
 
 help:
-	@echo "Kin AI forge (wrapper) — common commands"
+	@echo "forge — Raspberry Pi client wrapper commands"
 	@echo ""
 	@echo "Stop for local dev (still starts on reboot if enabled):"
 	@echo "  make stop-dev         Stop launcher, then show enabled/active"
@@ -21,6 +23,11 @@ help:
 	@echo "  make start            Start launcher when done testing"
 	@echo "  make show-branch      Show GIT_BRANCH from .env (else default main)"
 	@echo "  (Push branch; set GIT_BRANCH=... in .env so reboot pulls that branch.)"
+	@echo ""
+	@echo "Demo mode (runs demo.py instead of main.py):"
+	@echo "  make demo-on          Set DEMO_MODE=true in .env and restart launcher"
+	@echo "  make demo-off         Set DEMO_MODE=false in .env and restart launcher"
+	@echo "  make mode-status      Show current DEMO_MODE value from .env"
 	@echo ""
 	@echo "Boot auto-start:"
 	@echo "  make enable-boot      Enable xavier + otelcol on reboot"
@@ -100,6 +107,33 @@ show-branch:
 		grep '^GIT_BRANCH=' .env | head -1; \
 	else \
 		echo 'GIT_BRANCH not in .env — launch.sh defaults to main'; \
+	fi
+
+# --- Demo mode helpers -------------------------------------------------------
+# Writes DEMO_MODE=<value> into $(ENV_FILE), replacing any existing line, then
+# restarts xavier so launch.sh picks it up.
+define _set_demo_mode
+	@touch $(ENV_FILE)
+	@if grep -q '^DEMO_MODE=' $(ENV_FILE); then \
+		sed -i.bak 's/^DEMO_MODE=.*/DEMO_MODE=$(1)/' $(ENV_FILE) && rm -f $(ENV_FILE).bak; \
+	else \
+		printf '\nDEMO_MODE=$(1)\n' >> $(ENV_FILE); \
+	fi
+	@echo "DEMO_MODE=$(1) written to $(ENV_FILE)"
+	@$(MAKE) --no-print-directory restart
+endef
+
+demo-on:
+	$(call _set_demo_mode,true)
+
+demo-off:
+	$(call _set_demo_mode,false)
+
+mode-status:
+	@if [ -f $(ENV_FILE) ] && grep -q '^DEMO_MODE=' $(ENV_FILE); then \
+		grep '^DEMO_MODE=' $(ENV_FILE) | head -1; \
+	else \
+		echo 'DEMO_MODE not in .env — launch.sh defaults to false (main.py)'; \
 	fi
 
 restart:

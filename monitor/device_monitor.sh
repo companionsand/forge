@@ -1,5 +1,5 @@
 #!/bin/bash
-# Kin AI Device Monitor
+# Device monitor
 # Background process that sends heartbeats and handles remote interventions
 #
 # This script:

@@ -1,5 +1,5 @@
 [Unit]
-Description=Kin device heartbeat monitor
+Description=Device heartbeat monitor
 Documentation=https://github.com/companionsand/raspberry-pi-client
 After=network-online.target xavier.service
 Wants=network-online.target

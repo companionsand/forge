@@ -1,6 +1,6 @@
 # Production Reliability Scripts
 
-This folder contains scripts to configure production-grade reliability settings for Kin AI devices running 24/7 in seniors' homes.
+This folder contains scripts to configure production-grade reliability settings for devices running 24/7 in seniors' homes.
 
 ## Scripts
 
