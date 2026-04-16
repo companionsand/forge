@@ -32,6 +32,153 @@ log_warn() {
     echo "$LOG_PREFIX [WARN] $1"
 }
 
+parse_bool_value() {
+    case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+        true|1|yes|on) echo "true"; return 0 ;;
+        false|0|no|off) echo "false"; return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+read_client_env_value() {
+    local key="$1"
+    if [ ! -f "$CLIENT_DIR/.env" ]; then
+        return 1
+    fi
+
+    grep -E "^${key}=" "$CLIENT_DIR/.env" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d ' "'
+}
+
+resolve_demo_mode_setting() {
+    if [ "${DEMO_MODE+x}" = "x" ]; then
+        local override_value
+        if override_value="$(parse_bool_value "$DEMO_MODE")"; then
+            echo "override:${override_value}"
+            return 0
+        fi
+        echo "$LOG_PREFIX [WARN] Invalid DEMO_MODE override '$DEMO_MODE' in $WRAPPER_DIR/.env; ignoring override" >&2
+    fi
+
+    if [ -z "${VENV_PYTHON:-}" ] || [ ! -x "$VENV_PYTHON" ]; then
+        echo "default:false"
+        return 0
+    fi
+
+    local device_id=""
+    local device_private_key=""
+    local orchestrator_url=""
+    local resolved=""
+
+    device_id="${DEVICE_ID:-$(read_client_env_value DEVICE_ID)}"
+    device_private_key="${DEVICE_PRIVATE_KEY:-$(read_client_env_value DEVICE_PRIVATE_KEY)}"
+    orchestrator_url="${ORCHESTRATOR_URL:-$(read_client_env_value ORCHESTRATOR_URL)}"
+
+    resolved="$("$VENV_PYTHON" - "$device_id" "$device_private_key" "$orchestrator_url" <<'PYEOF'
+import base64
+import json
+import sys
+from pathlib import Path
+
+
+def normalize_bool(value, default=False):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"true", "1", "yes", "on"}
+
+
+def emit(source, value):
+    print(f"{source}:{'true' if value else 'false'}")
+    raise SystemExit(0)
+
+
+def load_cached_demo_mode():
+    try:
+        cache_path = Path.home() / ".kin_config.json"
+        if not cache_path.exists():
+            return None
+        cache_data = json.loads(cache_path.read_text())
+        system = cache_data.get("system") or {}
+        if "demo_mode" not in system:
+            return None
+        return normalize_bool(system.get("demo_mode"), False)
+    except Exception:
+        return None
+
+
+device_id = sys.argv[1].strip()
+private_key_b64 = sys.argv[2].strip()
+orchestrator_url = sys.argv[3].strip()
+
+if device_id and private_key_b64:
+    try:
+        import requests
+        from cryptography.hazmat.primitives.asymmetric import ed25519
+
+        padded_private_key = private_key_b64 + ("=" * (-len(private_key_b64) % 4))
+        private_key_bytes = base64.b64decode(padded_private_key)
+        private_key = ed25519.Ed25519PrivateKey.from_private_bytes(private_key_bytes)
+
+        base_url = orchestrator_url or "wss://conversation-orchestrator.onrender.com/ws"
+        base_url = base_url.replace("ws://", "http://").replace("wss://", "https://")
+        if base_url.endswith("/ws"):
+            base_url = base_url[:-3]
+        base_url = base_url.rstrip("/")
+
+        challenge_resp = requests.post(
+            f"{base_url}/auth/device/challenge",
+            json={"device_id": device_id},
+            timeout=15,
+        )
+        challenge_resp.raise_for_status()
+        challenge_data = challenge_resp.json()
+
+        message = f"{challenge_data['challenge']}:{challenge_data['timestamp']}".encode()
+        signature = base64.b64encode(private_key.sign(message)).decode()
+
+        verify_resp = requests.post(
+            f"{base_url}/auth/device/verify",
+            json={
+                "device_id": device_id,
+                "challenge": challenge_data["challenge"],
+                "signature": signature,
+            },
+            timeout=15,
+        )
+        verify_resp.raise_for_status()
+        jwt_token = (verify_resp.json() or {}).get("jwt_token")
+        if not jwt_token:
+            raise RuntimeError("missing jwt token")
+
+        config_resp = requests.get(
+            f"{base_url}/auth/device/config",
+            headers={"Authorization": f"Bearer {jwt_token}"},
+            timeout=15,
+        )
+        config_resp.raise_for_status()
+        config_data = config_resp.json()
+        system = config_data.get("system") or {}
+        emit("backend", normalize_bool(system.get("demo_mode"), False))
+    except Exception:
+        pass
+
+cached_demo_mode = load_cached_demo_mode()
+if cached_demo_mode is not None:
+    emit("cache", cached_demo_mode)
+
+emit("default", False)
+PYEOF
+)" || resolved="default:false"
+
+    if ! printf '%s' "$resolved" | grep -Eq '^[a-z_]+:(true|false)$'; then
+        echo "default:false"
+        return 0
+    fi
+
+    echo "$resolved"
+}
+
 ensure_gpio_system_dependencies() {
     log_info "Ensuring GPIO system dependencies are installed..."
     if sudo apt-get update -qq 2>/dev/null && sudo apt-get install -y -qq python3-lgpio liblgpio-dev 2>/dev/null; then
@@ -194,21 +341,10 @@ GIT_BRANCH=${GIT_BRANCH:-"main"}
 BLE_DISCRIMINATOR=${BLE_DISCRIMINATOR:-""}
 BLE_NAME="Olympia_${BLE_DISCRIMINATOR:-SETUP}"
 
-# Demo mode toggle — when true, run demo.py instead of main.py.
-# Accepts: true/false, 1/0, yes/no (case-insensitive). Default: false.
-DEMO_MODE_RAW="${DEMO_MODE:-false}"
-case "$(echo "$DEMO_MODE_RAW" | tr '[:upper:]' '[:lower:]')" in
-    true|1|yes|on) DEMO_MODE=true ;;
-    *) DEMO_MODE=false ;;
-esac
-
 # Change to wrapper directory
 cd "$WRAPPER_DIR"
 
 log_info "Starting Raspberry Pi client launcher..."
-if [ "$DEMO_MODE" = "true" ]; then
-    log_info "DEMO_MODE=true — will run demo.py instead of main.py"
-fi
 
 # Step 0: Enforce BLE adapter no-pairing policy before Python starts.
 # This avoids runtime delays/timeouts in the app process and makes behavior
@@ -520,16 +656,33 @@ check_idle_time() {
     fi
 }
 
-# Select entrypoint: demo.py when DEMO_MODE=true, otherwise main.py
-if [ "$DEMO_MODE" = "true" ]; then
-    CLIENT_ENTRYPOINT="demo.py"
-else
-    CLIENT_ENTRYPOINT="main.py"
-fi
-
 # Run the entrypoint in a loop with idle-time monitoring
 while true; do
     ensure_bluetooth_noinput_agent
+    DEMO_MODE_RESULT="$(resolve_demo_mode_setting)"
+    DEMO_MODE_SOURCE="${DEMO_MODE_RESULT%%:*}"
+    DEMO_MODE_VALUE="${DEMO_MODE_RESULT##*:}"
+
+    if [ "$DEMO_MODE_VALUE" = "true" ]; then
+        CLIENT_ENTRYPOINT="demo.py"
+    else
+        CLIENT_ENTRYPOINT="main.py"
+    fi
+
+    case "$DEMO_MODE_SOURCE" in
+        override)
+            log_info "Resolved runtime mode from explicit forge DEMO_MODE override: $CLIENT_ENTRYPOINT"
+            ;;
+        backend)
+            log_info "Resolved runtime mode from backend config: $CLIENT_ENTRYPOINT"
+            ;;
+        cache)
+            log_info "Resolved runtime mode from cached config (~/.kin_config.json): $CLIENT_ENTRYPOINT"
+            ;;
+        *)
+            log_info "Resolved runtime mode using safe fallback (normal mode): $CLIENT_ENTRYPOINT"
+            ;;
+    esac
     log_info "Starting $CLIENT_ENTRYPOINT..."
 
     # Initialize activity file

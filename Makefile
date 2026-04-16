@@ -9,7 +9,7 @@ ENV_FILE := .env
 	start stop stop-dev restart status \
 	start-otel stop-otel restart-otel status-otel \
 	boot-status enable-boot disable-boot show-branch \
-	demo-on demo-off mode-status \
+	demo-on demo-off demo-auto mode-status \
 	logs logs-follow logs-all logs-otel logs-otel-follow \
 	diagnostics daemon-reload pull-client
 
@@ -24,10 +24,11 @@ help:
 	@echo "  make show-branch      Show GIT_BRANCH from .env (else default main)"
 	@echo "  (Push branch; set GIT_BRANCH=... in .env so reboot pulls that branch.)"
 	@echo ""
-	@echo "Demo mode (runs demo.py instead of main.py):"
+	@echo "Demo mode override (otherwise launch.sh uses backend config):"
 	@echo "  make demo-on          Set DEMO_MODE=true in .env and restart launcher"
 	@echo "  make demo-off         Set DEMO_MODE=false in .env and restart launcher"
-	@echo "  make mode-status      Show current DEMO_MODE value from .env"
+	@echo "  make demo-auto        Remove DEMO_MODE from .env and use backend/cache"
+	@echo "  make mode-status      Show current DEMO_MODE override status"
 	@echo ""
 	@echo "Boot auto-start:"
 	@echo "  make enable-boot      Enable xavier + otelcol on reboot"
@@ -111,7 +112,7 @@ show-branch:
 
 # --- Demo mode helpers -------------------------------------------------------
 # Writes DEMO_MODE=<value> into $(ENV_FILE), replacing any existing line, then
-# restarts xavier so launch.sh picks it up.
+# restarts xavier so launch.sh treats it as an explicit override.
 define _set_demo_mode
 	@touch $(ENV_FILE)
 	@if grep -q '^DEMO_MODE=' $(ENV_FILE); then \
@@ -129,11 +130,18 @@ demo-on:
 demo-off:
 	$(call _set_demo_mode,false)
 
+demo-auto:
+	@touch $(ENV_FILE)
+	@grep -v '^DEMO_MODE=' $(ENV_FILE) > $(ENV_FILE).tmp || true
+	@mv $(ENV_FILE).tmp $(ENV_FILE)
+	@echo "DEMO_MODE override removed from $(ENV_FILE)"
+	@$(MAKE) --no-print-directory restart
+
 mode-status:
 	@if [ -f $(ENV_FILE) ] && grep -q '^DEMO_MODE=' $(ENV_FILE); then \
 		grep '^DEMO_MODE=' $(ENV_FILE) | head -1; \
 	else \
-		echo 'DEMO_MODE not in .env — launch.sh defaults to false (main.py)'; \
+		echo 'DEMO_MODE not in .env — launch.sh will use backend config, then cache, then false'; \
 	fi
 
 restart:
