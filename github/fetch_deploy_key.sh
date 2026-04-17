@@ -127,7 +127,17 @@ PYEOF
     echo "$DEPLOY_KEY" > "$SSH_KEY_PATH"
     chmod 600 "$SSH_KEY_PATH"
     
-    # Configure SSH for GitHub (if not already configured).
+    # Configure SSH for GitHub (and heal older configs that still point at
+    # the legacy kin_deploy_key path).
+    touch ~/.ssh/config
+    if grep -q "$LEGACY_SSH_KEY_PATH" ~/.ssh/config 2>/dev/null; then
+        sed -i.bak "s|$LEGACY_SSH_KEY_PATH|$SSH_KEY_PATH|g" ~/.ssh/config && rm -f ~/.ssh/config.bak
+    fi
+    if grep -q "~/.ssh/kin_deploy_key" ~/.ssh/config 2>/dev/null; then
+        sed -i.bak "s|~/.ssh/kin_deploy_key|$SSH_KEY_PATH|g" ~/.ssh/config && rm -f ~/.ssh/config.bak
+    fi
+
+    # Add the managed block if it is not already configured.
     # Match either the legacy "# Kin Deploy Key" marker or the new
     # "# Device deploy key" marker to stay idempotent across upgrades.
     if ! grep -qE "# (Kin Deploy Key|Device deploy key)" ~/.ssh/config 2>/dev/null; then
