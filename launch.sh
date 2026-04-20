@@ -181,10 +181,10 @@ PYEOF
 
 ensure_gpio_system_dependencies() {
     log_info "Ensuring GPIO system dependencies are installed..."
-    if sudo apt-get update -qq 2>/dev/null && sudo apt-get install -y -qq python3-lgpio liblgpio-dev 2>/dev/null; then
+    if sudo apt-get update -qq 2>/dev/null && sudo apt-get install -y -qq python3-lgpio liblgpio-dev swig 2>/dev/null; then
         log_success "GPIO system dependencies ready"
     else
-        log_warn "Could not install python3-lgpio/liblgpio-dev (continuing with cached environment)"
+        log_warn "Could not install python3-lgpio/liblgpio-dev/swig (continuing with cached environment)"
     fi
 }
 
