@@ -659,28 +659,65 @@ check_idle_time() {
 # Run the entrypoint in a loop with idle-time monitoring
 while true; do
     ensure_bluetooth_noinput_agent
-    DEMO_MODE_RESULT="$(resolve_demo_mode_setting)"
-    DEMO_MODE_SOURCE="${DEMO_MODE_RESULT%%:*}"
-    DEMO_MODE_VALUE="${DEMO_MODE_RESULT##*:}"
 
-    if [ "$DEMO_MODE_VALUE" = "true" ]; then
-        CLIENT_ENTRYPOINT="demo.py"
-    else
-        CLIENT_ENTRYPOINT="main.py"
+    # KIN_MODE takes precedence when set explicitly. Accepted values:
+    #   regular  → main.py (production)
+    #   demo     → demo.py (group demo UI)
+    #   config   → config.py (operator pipeline tuning + recording UI)
+    # If KIN_MODE is unset or unrecognised, fall back to the legacy
+    # DEMO_MODE-based dispatch (regular vs demo only) for backward compat.
+    KIN_MODE_NORMALISED=""
+    if [ -n "${KIN_MODE:-}" ]; then
+        KIN_MODE_NORMALISED="$(printf '%s' "$KIN_MODE" | tr '[:upper:]' '[:lower:]')"
     fi
 
-    case "$DEMO_MODE_SOURCE" in
-        override)
-            log_info "Resolved runtime mode from explicit forge DEMO_MODE override: $CLIENT_ENTRYPOINT"
+    case "$KIN_MODE_NORMALISED" in
+        regular)
+            CLIENT_ENTRYPOINT="main.py"
+            log_info "Resolved runtime mode from explicit forge KIN_MODE=regular: $CLIENT_ENTRYPOINT"
             ;;
-        backend)
-            log_info "Resolved runtime mode from backend config: $CLIENT_ENTRYPOINT"
+        demo)
+            CLIENT_ENTRYPOINT="demo.py"
+            log_info "Resolved runtime mode from explicit forge KIN_MODE=demo: $CLIENT_ENTRYPOINT"
             ;;
-        cache)
-            log_info "Resolved runtime mode from cached config (~/.kin_config.json): $CLIENT_ENTRYPOINT"
+        config)
+            CLIENT_ENTRYPOINT="config.py"
+            log_info "Resolved runtime mode from explicit forge KIN_MODE=config: $CLIENT_ENTRYPOINT"
+            ;;
+        "")
+            DEMO_MODE_RESULT="$(resolve_demo_mode_setting)"
+            DEMO_MODE_SOURCE="${DEMO_MODE_RESULT%%:*}"
+            DEMO_MODE_VALUE="${DEMO_MODE_RESULT##*:}"
+            if [ "$DEMO_MODE_VALUE" = "true" ]; then
+                CLIENT_ENTRYPOINT="demo.py"
+            else
+                CLIENT_ENTRYPOINT="main.py"
+            fi
+            case "$DEMO_MODE_SOURCE" in
+                override)
+                    log_info "Resolved runtime mode from explicit forge DEMO_MODE override: $CLIENT_ENTRYPOINT"
+                    ;;
+                backend)
+                    log_info "Resolved runtime mode from backend config: $CLIENT_ENTRYPOINT"
+                    ;;
+                cache)
+                    log_info "Resolved runtime mode from cached config (~/.kin_config.json): $CLIENT_ENTRYPOINT"
+                    ;;
+                *)
+                    log_info "Resolved runtime mode using safe fallback (normal mode): $CLIENT_ENTRYPOINT"
+                    ;;
+            esac
             ;;
         *)
-            log_info "Resolved runtime mode using safe fallback (normal mode): $CLIENT_ENTRYPOINT"
+            log_warn "Unrecognised KIN_MODE='$KIN_MODE'; falling back to DEMO_MODE dispatch"
+            DEMO_MODE_RESULT="$(resolve_demo_mode_setting)"
+            DEMO_MODE_VALUE="${DEMO_MODE_RESULT##*:}"
+            if [ "$DEMO_MODE_VALUE" = "true" ]; then
+                CLIENT_ENTRYPOINT="demo.py"
+            else
+                CLIENT_ENTRYPOINT="main.py"
+            fi
+            log_info "Resolved runtime mode using fallback: $CLIENT_ENTRYPOINT"
             ;;
     esac
     log_info "Starting $CLIENT_ENTRYPOINT..."
