@@ -586,7 +586,7 @@ send_network_speed_test() {
 update_intervention_status() {
     local intervention_id=$1
     local status=$2
-    local error_message=$3
+    local error_message="${3:-}"
     
     local body="{\"status\": \"$status\""
     if [ -n "$error_message" ]; then
