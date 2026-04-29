@@ -49,18 +49,22 @@ read_client_env_value() {
     grep -E "^${key}=" "$CLIENT_DIR/.env" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d ' "'
 }
 
-resolve_demo_mode_setting() {
+resolve_runtime_mode_setting() {
     if [ "${DEMO_MODE+x}" = "x" ]; then
         local override_value
         if override_value="$(parse_bool_value "$DEMO_MODE")"; then
-            echo "override:${override_value}"
+            if [ "$override_value" = "true" ]; then
+                echo "override:demo"
+            else
+                echo "override:regular"
+            fi
             return 0
         fi
         echo "$LOG_PREFIX [WARN] Invalid DEMO_MODE override '$DEMO_MODE' in $WRAPPER_DIR/.env; ignoring override" >&2
     fi
 
     if [ -z "${VENV_PYTHON:-}" ] || [ ! -x "$VENV_PYTHON" ]; then
-        echo "default:false"
+        echo "default:regular"
         return 0
     fi
 
@@ -88,21 +92,29 @@ def normalize_bool(value, default=False):
     return str(value).strip().lower() in {"true", "1", "yes", "on"}
 
 
+def resolve_mode(system):
+    if normalize_bool(system.get("config_mode"), False):
+        return "config"
+    if normalize_bool(system.get("demo_mode"), False):
+        return "demo"
+    return "regular"
+
+
 def emit(source, value):
-    print(f"{source}:{'true' if value else 'false'}")
+    print(f"{source}:{value}")
     raise SystemExit(0)
 
 
-def load_cached_demo_mode():
+def load_cached_runtime_mode():
     try:
         cache_path = Path.home() / ".kin_config.json"
         if not cache_path.exists():
             return None
         cache_data = json.loads(cache_path.read_text())
         system = cache_data.get("system") or {}
-        if "demo_mode" not in system:
+        if "config_mode" not in system and "demo_mode" not in system:
             return None
-        return normalize_bool(system.get("demo_mode"), False)
+        return resolve_mode(system)
     except Exception:
         return None
 
@@ -159,20 +171,20 @@ if device_id and private_key_b64:
         config_resp.raise_for_status()
         config_data = config_resp.json()
         system = config_data.get("system") or {}
-        emit("backend", normalize_bool(system.get("demo_mode"), False))
+        emit("backend", resolve_mode(system))
     except Exception:
         pass
 
-cached_demo_mode = load_cached_demo_mode()
-if cached_demo_mode is not None:
-    emit("cache", cached_demo_mode)
+cached_runtime_mode = load_cached_runtime_mode()
+if cached_runtime_mode is not None:
+    emit("cache", cached_runtime_mode)
 
-emit("default", False)
+emit("default", "regular")
 PYEOF
-)" || resolved="default:false"
+)" || resolved="default:regular"
 
-    if ! printf '%s' "$resolved" | grep -Eq '^[a-z_]+:(true|false)$'; then
-        echo "default:false"
+    if ! printf '%s' "$resolved" | grep -Eq '^[a-z_]+:(regular|demo|config)$'; then
+        echo "default:regular"
         return 0
     fi
 
@@ -664,8 +676,8 @@ while true; do
     #   regular  → main.py (production)
     #   demo     → demo.py (group demo UI)
     #   config   → config.py (operator pipeline tuning + recording UI)
-    # If KIN_MODE is unset or unrecognised, fall back to the legacy
-    # DEMO_MODE-based dispatch (regular vs demo only) for backward compat.
+    # If KIN_MODE is unset or unrecognised, resolve runtime mode from the
+    # backend config, cached config, and finally the legacy DEMO_MODE override.
     KIN_MODE_NORMALISED=""
     if [ -n "${KIN_MODE:-}" ]; then
         KIN_MODE_NORMALISED="$(printf '%s' "$KIN_MODE" | tr '[:upper:]' '[:lower:]')"
@@ -685,15 +697,21 @@ while true; do
             log_info "Resolved runtime mode from explicit forge KIN_MODE=config: $CLIENT_ENTRYPOINT"
             ;;
         "")
-            DEMO_MODE_RESULT="$(resolve_demo_mode_setting)"
-            DEMO_MODE_SOURCE="${DEMO_MODE_RESULT%%:*}"
-            DEMO_MODE_VALUE="${DEMO_MODE_RESULT##*:}"
-            if [ "$DEMO_MODE_VALUE" = "true" ]; then
-                CLIENT_ENTRYPOINT="demo.py"
-            else
-                CLIENT_ENTRYPOINT="main.py"
-            fi
-            case "$DEMO_MODE_SOURCE" in
+            RUNTIME_MODE_RESULT="$(resolve_runtime_mode_setting)"
+            RUNTIME_MODE_SOURCE="${RUNTIME_MODE_RESULT%%:*}"
+            RUNTIME_MODE_VALUE="${RUNTIME_MODE_RESULT##*:}"
+            case "$RUNTIME_MODE_VALUE" in
+                config)
+                    CLIENT_ENTRYPOINT="config.py"
+                    ;;
+                demo)
+                    CLIENT_ENTRYPOINT="demo.py"
+                    ;;
+                *)
+                    CLIENT_ENTRYPOINT="main.py"
+                    ;;
+            esac
+            case "$RUNTIME_MODE_SOURCE" in
                 override)
                     log_info "Resolved runtime mode from explicit forge DEMO_MODE override: $CLIENT_ENTRYPOINT"
                     ;;
@@ -709,14 +727,20 @@ while true; do
             esac
             ;;
         *)
-            log_warn "Unrecognised KIN_MODE='$KIN_MODE'; falling back to DEMO_MODE dispatch"
-            DEMO_MODE_RESULT="$(resolve_demo_mode_setting)"
-            DEMO_MODE_VALUE="${DEMO_MODE_RESULT##*:}"
-            if [ "$DEMO_MODE_VALUE" = "true" ]; then
-                CLIENT_ENTRYPOINT="demo.py"
-            else
-                CLIENT_ENTRYPOINT="main.py"
-            fi
+            log_warn "Unrecognised KIN_MODE='$KIN_MODE'; falling back to backend runtime mode"
+            RUNTIME_MODE_RESULT="$(resolve_runtime_mode_setting)"
+            RUNTIME_MODE_VALUE="${RUNTIME_MODE_RESULT##*:}"
+            case "$RUNTIME_MODE_VALUE" in
+                config)
+                    CLIENT_ENTRYPOINT="config.py"
+                    ;;
+                demo)
+                    CLIENT_ENTRYPOINT="demo.py"
+                    ;;
+                *)
+                    CLIENT_ENTRYPOINT="main.py"
+                    ;;
+            esac
             log_info "Resolved runtime mode using fallback: $CLIENT_ENTRYPOINT"
             ;;
     esac
