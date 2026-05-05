@@ -14,6 +14,8 @@ APP_DIR="$REPO_DIR/app"
 CLIENT_DIR="$APP_DIR"  # Backward-compatible name used by older installer sections.
 VENV_DIR="$APP_DIR/venv"
 GIT_REPO_URL="git@github.com:companionsand/xavier.git"  # SSH URL (requires deploy key)
+CEREBRO_REPO_URL="git@github.com:companionsand/cerebro.git"
+CEREBRO_COMMIT="44f38a64e9efcd2b619a4402d9ed73b3a696517c"
 XAVIER_STATE_DIR="${KIN_STATE_DIR:-/var/lib/xavier}"
 XAVIER_CONFIG_CACHE_PATH="${KIN_CONFIG_CACHE_PATH:-$XAVIER_STATE_DIR/device-config.json}"
 DAVOICE_WHEEL_URL="https://github.com/frymanofer/Python_WakeWordDetection/raw/main/dist/keyword_detection_lib-2.0.3-cp313-none-manylinux2014_aarch64.whl"
@@ -124,6 +126,21 @@ install_davoice_sdk_best_effort() {
     fi
 
     return 0
+}
+
+ensure_cerebro_dependency() {
+    if [ -f "$APP_DIR/cerebro/pyproject.toml" ]; then
+        log_success "cerebro dependency already present"
+        return 0
+    fi
+
+    log_info "Fetching pinned cerebro dependency..."
+    rm -rf "$APP_DIR/cerebro"
+    git clone "$CEREBRO_REPO_URL" "$APP_DIR/cerebro"
+    cd "$APP_DIR/cerebro"
+    git checkout --detach "$CEREBRO_COMMIT"
+    cd "$REPO_DIR"
+    log_success "cerebro dependency ready"
 }
 
 # Load .env file if it exists
@@ -651,6 +668,8 @@ if [ ! -d "$APP_DIR" ]; then
     log_error "Xavier app directory not found at $APP_DIR"
     exit 1
 fi
+
+ensure_cerebro_dependency
 
 # Step 3b: Install ReSpeaker USB dependencies
 # ReSpeaker tuning tools are vendored in Xavier (no external repo needed)

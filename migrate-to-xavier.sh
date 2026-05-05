@@ -12,6 +12,8 @@ APP_DIR="$REPO_DIR/app"
 XAVIER_ENV_FILE="$APP_DIR/.env"
 VENV_DIR="$APP_DIR/venv"
 GIT_REPO_URL="git@github.com:companionsand/xavier.git"
+CEREBRO_REPO_URL="git@github.com:companionsand/cerebro.git"
+CEREBRO_COMMIT="44f38a64e9efcd2b619a4402d9ed73b3a696517c"
 XAVIER_BRANCH="${XAVIER_GIT_BRANCH:-main}"
 XAVIER_STATE_DIR="${KIN_STATE_DIR:-/var/lib/xavier}"
 XAVIER_CONFIG_CACHE_PATH="${KIN_CONFIG_CACHE_PATH:-$XAVIER_STATE_DIR/device-config.json}"
@@ -81,6 +83,32 @@ install_davoice_sdk_best_effort() {
     else
         log_warning "Could not install/verify DaVoice SDK (Xavier can fall back to OpenWakeWord)"
     fi
+}
+
+ensure_cerebro_dependency() {
+    if [ -f "$APP_DIR/cerebro/pyproject.toml" ]; then
+        log_success "cerebro dependency already present"
+        return 0
+    fi
+
+    log_info "Fetching pinned cerebro dependency..."
+    rm -rf "$APP_DIR/cerebro"
+    if git clone "$CEREBRO_REPO_URL" "$APP_DIR/cerebro"; then
+        cd "$APP_DIR/cerebro"
+        git checkout --detach "$CEREBRO_COMMIT"
+        cd "$REPO_DIR"
+        log_success "cerebro dependency ready"
+        return 0
+    fi
+
+    if [ -d "$LEGACY_CLIENT_DIR/cerebro" ]; then
+        log_warning "Could not clone cerebro; copying existing legacy cerebro directory"
+        cp -a "$LEGACY_CLIENT_DIR/cerebro" "$APP_DIR/cerebro"
+        return 0
+    fi
+
+    log_error "Could not fetch cerebro dependency"
+    return 1
 }
 
 ensure_build_dependencies() {
@@ -178,6 +206,8 @@ if [ ! -d "$APP_DIR" ]; then
     log_error "Xavier app directory not found at $APP_DIR"
     exit 1
 fi
+
+ensure_cerebro_dependency
 
 log_info "Creating Xavier state directory at $XAVIER_STATE_DIR..."
 sudo mkdir -p "$XAVIER_STATE_DIR"
