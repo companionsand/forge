@@ -386,18 +386,18 @@ apt_install_robust() {
 }
 
 ensure_gpio_system_dependencies() {
-    log_info "Installing GPIO system dependencies for gpiozero/lgpio..."
-    if apt_install_robust python3-lgpio liblgpio-dev; then
+    log_info "Installing GPIO build/system dependencies for gpiozero/lgpio..."
+    if apt_install_robust python3-lgpio liblgpio-dev swig; then
         log_success "GPIO system dependencies installed"
     else
-        log_warning "Could not install python3-lgpio/liblgpio-dev (GPIO output may be unavailable)"
+        log_warning "Could not install python3-lgpio/liblgpio-dev/swig (GPIO output may be unavailable)"
     fi
 }
 
 if ! apt_install_robust \
     python3-pip python3-venv portaudio19-dev python3-pyaudio alsa-utils \
     dnsutils bind9-host network-manager wireless-tools \
-    iw rfkill git curl wget python3-cryptography python3-requests; then
+    iw rfkill git curl wget swig python3-cryptography python3-requests; then
     log_error "Failed to install core dependencies. Try: sudo apt update && sudo apt --fix-broken install"
     exit 1
 fi

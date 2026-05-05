@@ -83,6 +83,15 @@ install_davoice_sdk_best_effort() {
     fi
 }
 
+ensure_build_dependencies() {
+    log_info "Ensuring Xavier build dependencies are installed..."
+    if sudo apt-get update -qq 2>/dev/null && sudo apt-get install -y -qq swig python3-lgpio liblgpio-dev 2>/dev/null; then
+        log_success "Build dependencies ready"
+    else
+        log_warning "Could not install swig/python3-lgpio/liblgpio-dev (continuing with existing system packages)"
+    fi
+}
+
 install_service_file() {
     local template="$1"
     local target="$2"
@@ -176,6 +185,8 @@ sudo chown "$SERVICE_USER:$SERVICE_GROUP" "$XAVIER_STATE_DIR" 2>/dev/null || tru
 sudo chmod 755 "$XAVIER_STATE_DIR"
 
 log_info "Creating/updating Python virtual environment at $VENV_DIR..."
+ensure_build_dependencies
+
 if [ ! -d "$VENV_DIR" ]; then
     python3 -m venv "$VENV_DIR"
 fi
