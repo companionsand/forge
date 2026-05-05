@@ -13,7 +13,7 @@ XAVIER_ENV_FILE="$APP_DIR/.env"
 VENV_DIR="$APP_DIR/venv"
 GIT_REPO_URL="git@github.com:companionsand/xavier.git"
 CEREBRO_REPO_URL="git@github.com:companionsand/cerebro.git"
-CEREBRO_COMMIT="44f38a64e9efcd2b619a4402d9ed73b3a696517c"
+DEFAULT_CEREBRO_COMMIT="44f38a64e9efcd2b619a4402d9ed73b3a696517c"
 XAVIER_BRANCH="${XAVIER_GIT_BRANCH:-main}"
 XAVIER_STATE_DIR="${KIN_STATE_DIR:-/var/lib/xavier}"
 XAVIER_CONFIG_CACHE_PATH="${KIN_CONFIG_CACHE_PATH:-$XAVIER_STATE_DIR/device-config.json}"
@@ -86,16 +86,33 @@ install_davoice_sdk_best_effort() {
 }
 
 ensure_cerebro_dependency() {
-    if [ -f "$APP_DIR/cerebro/pyproject.toml" ]; then
-        log_success "cerebro dependency already present"
-        return 0
+    local cerebro_commit="$DEFAULT_CEREBRO_COMMIT"
+    if [ -f "$REPO_DIR/cerebro.lock" ]; then
+        cerebro_commit="$(tr -d '[:space:]' < "$REPO_DIR/cerebro.lock")"
     fi
 
-    log_info "Fetching pinned cerebro dependency..."
+    if ! printf '%s' "$cerebro_commit" | grep -Eq '^[0-9a-f]{40}$'; then
+        log_error "Invalid cerebro commit in $REPO_DIR/cerebro.lock: $cerebro_commit"
+        return 1
+    fi
+
+    if [ -d "$APP_DIR/cerebro/.git" ]; then
+        log_info "Updating cerebro dependency to $cerebro_commit..."
+        cd "$APP_DIR/cerebro"
+        if git fetch origin "$cerebro_commit" && git checkout --detach "$cerebro_commit"; then
+            cd "$REPO_DIR"
+            log_success "cerebro dependency ready"
+            return 0
+        fi
+        cd "$REPO_DIR"
+        return 1
+    fi
+
+    log_info "Fetching cerebro dependency at $cerebro_commit..."
     rm -rf "$APP_DIR/cerebro"
     if git clone "$CEREBRO_REPO_URL" "$APP_DIR/cerebro"; then
         cd "$APP_DIR/cerebro"
-        git checkout --detach "$CEREBRO_COMMIT"
+        git checkout --detach "$cerebro_commit"
         cd "$REPO_DIR"
         log_success "cerebro dependency ready"
         return 0

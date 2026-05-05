@@ -15,7 +15,7 @@ CLIENT_DIR="$APP_DIR"  # Backward-compatible name used by older launcher section
 VENV_DIR="$APP_DIR/venv"
 GIT_REPO_URL="git@github.com:companionsand/xavier.git"  # SSH URL (requires deploy key)
 CEREBRO_REPO_URL="git@github.com:companionsand/cerebro.git"
-CEREBRO_COMMIT="44f38a64e9efcd2b619a4402d9ed73b3a696517c"
+DEFAULT_CEREBRO_COMMIT="44f38a64e9efcd2b619a4402d9ed73b3a696517c"
 XAVIER_STATE_DIR="${KIN_STATE_DIR:-/var/lib/xavier}"
 XAVIER_CONFIG_CACHE_PATH="${KIN_CONFIG_CACHE_PATH:-$XAVIER_STATE_DIR/device-config.json}"
 DAVOICE_WHEEL_URL="https://github.com/frymanofer/Python_WakeWordDetection/raw/main/dist/keyword_detection_lib-2.0.3-cp313-none-manylinux2014_aarch64.whl"
@@ -337,15 +337,40 @@ install_davoice_sdk_best_effort() {
 }
 
 ensure_cerebro_dependency() {
-    if [ -f "$APP_DIR/cerebro/pyproject.toml" ]; then
-        return 0
+    local cerebro_commit="$DEFAULT_CEREBRO_COMMIT"
+    if [ -f "$REPO_DIR/cerebro.lock" ]; then
+        cerebro_commit="$(tr -d '[:space:]' < "$REPO_DIR/cerebro.lock")"
     fi
 
-    log_info "cerebro dependency missing; fetching pinned dependency..."
+    if ! printf '%s' "$cerebro_commit" | grep -Eq '^[0-9a-f]{40}$'; then
+        log_warn "Invalid cerebro commit in $REPO_DIR/cerebro.lock: $cerebro_commit"
+        return 1
+    fi
+
+    if [ -d "$APP_DIR/cerebro/.git" ]; then
+        cd "$APP_DIR/cerebro"
+        local current_commit
+        current_commit="$(git rev-parse HEAD 2>/dev/null || true)"
+        if [ "$current_commit" = "$cerebro_commit" ]; then
+            cd "$REPO_DIR"
+            return 0
+        fi
+        log_info "Updating cerebro dependency to $cerebro_commit..."
+        if git fetch origin "$cerebro_commit" 2>/dev/null && git checkout --detach "$cerebro_commit" 2>/dev/null; then
+            cd "$REPO_DIR"
+            log_success "cerebro dependency ready"
+            return 0
+        fi
+        cd "$REPO_DIR"
+        log_warn "Could not update existing cerebro dependency"
+        return 1
+    fi
+
+    log_info "cerebro dependency missing; fetching $cerebro_commit..."
     rm -rf "$APP_DIR/cerebro"
     if git clone "$CEREBRO_REPO_URL" "$APP_DIR/cerebro" 2>/dev/null; then
         cd "$APP_DIR/cerebro"
-        git checkout --detach "$CEREBRO_COMMIT" 2>/dev/null || true
+        git checkout --detach "$cerebro_commit" 2>/dev/null || true
         cd "$REPO_DIR"
         log_success "cerebro dependency ready"
     else
@@ -775,7 +800,9 @@ while true; do
                 git reset --hard "origin/$XAVIER_BRANCH" 2>/dev/null || log_info "Could not apply updates"
 
                 git submodule update --init --recursive 2>/dev/null || log_info "Could not update cerebro submodule"
-                ensure_cerebro_dependency || true
+                if ensure_cerebro_dependency && [ -f "$APP_DIR/cerebro/pyproject.toml" ]; then
+                    "$VENV_PYTHON" -m pip install -e "$APP_DIR/cerebro" -q 2>/dev/null || true
+                fi
                 
                 # Reinstall requirements in case they changed
                 "$VENV_PYTHON" -m pip install -r "$APP_DIR/requirements.txt" -q 2>/dev/null || log_info "Could not update requirements"
