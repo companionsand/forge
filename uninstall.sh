@@ -1,5 +1,5 @@
 #!/bin/bash
-# Raspberry Pi client wrapper - uninstall script
+# Xavier Forge runtime - uninstall script
 # This script removes all components installed by install.sh
 
 set -e
@@ -33,6 +33,7 @@ NC='\033[0m' # No Color
 # Configuration
 WRAPPER_DIR="$SCRIPT_DIR"
 CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
+XAVIER_REPO_DIR="$WRAPPER_DIR/xavier"
 
 # Logging functions
 log_info() {
@@ -54,7 +55,7 @@ log_error() {
 # Print header
 echo ""
 echo "========================================="
-echo "  Raspberry Pi client - uninstaller"
+echo "  Xavier Forge runtime - uninstaller"
 echo "========================================="
 echo ""
 log_warning "This will remove ALL components installed by install.sh"
@@ -192,6 +193,11 @@ if [ -d "$CLIENT_DIR" ]; then
     log_success "Removed $CLIENT_DIR"
 fi
 
+if [ -d "$XAVIER_REPO_DIR" ]; then
+    rm -rf "$XAVIER_REPO_DIR"
+    log_success "Removed $XAVIER_REPO_DIR"
+fi
+
 # Step 7: Ask about removing cached downloads
 if [ -d "$WRAPPER_DIR/otel/.cache" ]; then
     echo ""
@@ -294,7 +300,8 @@ echo "  - /var/lib/otelcol/"
 echo "  - /var/log/otelcol/"
 echo ""
 echo "Repository removed:"
-echo "  - $CLIENT_DIR"
+echo "  - $XAVIER_REPO_DIR"
+echo "  - $CLIENT_DIR (legacy, if present)"
 echo ""
 
 if [ "$CACHE_REMOVED" = true ]; then

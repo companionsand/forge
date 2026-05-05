@@ -1,6 +1,6 @@
 [Unit]
 Description=Xavier (Raspberry Pi client launcher)
-Documentation=https://github.com/companionsand/raspberry-pi-client
+Documentation=https://github.com/companionsand/xavier
 After=network-online.target otelcol.service
 Wants=network-online.target
 Requires=otelcol.service
