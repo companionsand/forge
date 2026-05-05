@@ -9,7 +9,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WRAPPER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
+REPO_DIR="$WRAPPER_DIR/xavier"
+CLIENT_DIR="$REPO_DIR/app"
 VENV_PYTHON="$CLIENT_DIR/venv/bin/python"
 
 SERVICE_NAME="xavier"

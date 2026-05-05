@@ -16,7 +16,9 @@ set -uo pipefail
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 # Wrapper dir is one level up from monitor/
 WRAPPER_DIR="$( cd "$SCRIPT_DIR/.." && pwd )"
-CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
+REPO_DIR="$WRAPPER_DIR/xavier"
+APP_DIR="$REPO_DIR/app"
+CLIENT_DIR="$APP_DIR"
 
 # Logging
 LOG_PREFIX="[device-monitor]"
@@ -464,6 +466,24 @@ print(json.dumps({
 EOF
 }
 
+get_firmware_version() {
+    local balena_file="$REPO_DIR/balena.yml"
+    if [ ! -f "$balena_file" ]; then
+        return 0
+    fi
+
+    awk -F: '
+        /^[[:space:]]*version[[:space:]]*:/ {
+            value=$2
+            sub(/^[[:space:]]*/, "", value)
+            sub(/[[:space:]]*$/, "", value)
+            gsub(/^["'\'']|["'\'']$/, "", value)
+            print value
+            exit
+        }
+    ' "$balena_file"
+}
+
 # Function to send heartbeat
 send_heartbeat() {
     local include_logs=$1
@@ -492,7 +512,7 @@ send_heartbeat() {
     fi
 
     if [ "$include_logs" = "true" ]; then
-        firmware_version=$(cd "$CLIENT_DIR" 2>/dev/null && python3 -c "from version import __version__; print(__version__)" 2>/dev/null)
+        firmware_version="$(get_firmware_version)"
     fi
     
     local body
@@ -728,4 +748,3 @@ except:
     # Wait before next poll
     sleep $POLL_INTERVAL
 done
-

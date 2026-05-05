@@ -1,11 +1,13 @@
-# forge — Raspberry Pi client wrapper common operations
+# forge — Xavier Raspberry Pi OS runtime common operations
 # Run from this directory (the wrapper root on the Pi).
 
 SUDO := sudo
-CLIENT_DIR := raspberry-pi-client
+REPO_DIR := xavier
+CLIENT_DIR := xavier/app
 ENV_FILE := .env
 
 .PHONY: help install uninstall uninstall-y reinstall \
+	migrate-to-xavier \
 	start stop stop-dev restart status \
 	start-otel stop-otel restart-otel status-otel \
 	boot-status enable-boot disable-boot show-branch \
@@ -14,15 +16,15 @@ ENV_FILE := .env
 	diagnostics daemon-reload pull-client
 
 help:
-	@echo "forge — Raspberry Pi client wrapper commands"
+	@echo "forge — Xavier Raspberry Pi OS runtime commands"
 	@echo ""
 	@echo "Stop for local dev (still starts on reboot if enabled):"
 	@echo "  make stop-dev         Stop launcher, then show enabled/active"
 	@echo "  make stop             Stop launcher only (does not disable systemd)"
 	@echo "  make boot-status      Show enabled + active for both units"
 	@echo "  make start            Start launcher when done testing"
-	@echo "  make show-branch      Show GIT_BRANCH from .env (else default main)"
-	@echo "  (Push branch; set GIT_BRANCH=... in .env so reboot pulls that branch.)"
+	@echo "  make show-branch      Show XAVIER_GIT_BRANCH from .env (else default main)"
+	@echo "  (Xavier uses main unless XAVIER_GIT_BRANCH is explicitly set.)"
 	@echo ""
 	@echo "Demo mode override (otherwise launch.sh uses backend config):"
 	@echo "  make demo-on          Set DEMO_MODE=true in .env and restart launcher"
@@ -58,7 +60,8 @@ help:
 	@echo "  make diagnostics      Run device diagnostics (stops/restarts launcher)"
 	@echo "  make daemon-reload    After editing files in services/"
 	@echo ""
-	@echo "  make pull-client      git pull in $(CLIENT_DIR) (if repo exists)"
+	@echo "  make migrate-to-xavier Migrate an old raspberry-pi-client install to Xavier"
+	@echo "  make pull-client      git pull in $(REPO_DIR) (if repo exists)"
 
 install:
 	@chmod +x install.sh
@@ -75,6 +78,10 @@ uninstall-y:
 reinstall:
 	@chmod +x reinstall.sh
 	./reinstall.sh
+
+migrate-to-xavier:
+	@chmod +x migrate-to-xavier.sh
+	./migrate-to-xavier.sh
 
 start:
 	$(SUDO) systemctl start xavier
@@ -104,10 +111,10 @@ disable-boot:
 	@echo "Disabled for boot. Use: make enable-boot"
 
 show-branch:
-	@if [ -f .env ] && grep -q '^GIT_BRANCH=' .env; then \
-		grep '^GIT_BRANCH=' .env | head -1; \
+	@if [ -f .env ] && grep -q '^XAVIER_GIT_BRANCH=' .env; then \
+		grep '^XAVIER_GIT_BRANCH=' .env | head -1; \
 	else \
-		echo 'GIT_BRANCH not in .env — launch.sh defaults to main'; \
+		echo 'XAVIER_GIT_BRANCH not in .env — launch.sh defaults to main'; \
 	fi
 
 # --- Demo mode helpers -------------------------------------------------------
@@ -184,5 +191,5 @@ daemon-reload:
 	$(SUDO) systemctl daemon-reload
 
 pull-client:
-	@test -d $(CLIENT_DIR)/.git || (echo "No git repo at $(CLIENT_DIR)"; exit 1)
-	cd $(CLIENT_DIR) && git pull
+	@test -d $(REPO_DIR)/.git || (echo "No git repo at $(REPO_DIR)"; exit 1)
+	cd $(REPO_DIR) && git pull

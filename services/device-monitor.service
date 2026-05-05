@@ -1,6 +1,6 @@
 [Unit]
 Description=Device heartbeat monitor
-Documentation=https://github.com/companionsand/raspberry-pi-client
+Documentation=https://github.com/companionsand/xavier
 After=network-online.target xavier.service
 Wants=network-online.target
 StartLimitIntervalSec=0

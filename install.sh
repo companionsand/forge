@@ -1,6 +1,6 @@
 #!/bin/bash
-# Raspberry Pi client wrapper - installation script
-# This script sets up all dependencies and services for the Raspberry Pi client
+# Xavier Forge runtime - installation script
+# This script sets up all dependencies and services for Xavier on Raspberry Pi OS
 
 set -e
 
@@ -9,9 +9,13 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # Configuration
 WRAPPER_DIR="$SCRIPT_DIR"
-CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
-VENV_DIR="$CLIENT_DIR/venv"
-GIT_REPO_URL="git@github.com:companionsand/raspberry-pi-client.git"  # SSH URL (requires deploy key)
+REPO_DIR="$WRAPPER_DIR/xavier"
+APP_DIR="$REPO_DIR/app"
+CLIENT_DIR="$APP_DIR"  # Backward-compatible name used by older installer sections.
+VENV_DIR="$APP_DIR/venv"
+GIT_REPO_URL="git@github.com:companionsand/xavier.git"  # SSH URL (requires deploy key)
+XAVIER_STATE_DIR="${KIN_STATE_DIR:-/var/lib/xavier}"
+XAVIER_CONFIG_CACHE_PATH="${KIN_CONFIG_CACHE_PATH:-$XAVIER_STATE_DIR/device-config.json}"
 DAVOICE_WHEEL_URL="https://github.com/frymanofer/Python_WakeWordDetection/raw/main/dist/keyword_detection_lib-2.0.3-cp313-none-manylinux2014_aarch64.whl"
 
 # Colors for output
@@ -136,12 +140,15 @@ else
     log_info "No .env file found - will prompt for configuration"
 fi
 
-# Set defaults for optional configuration
-GIT_BRANCH=${GIT_BRANCH:-"main"}  # Default to main branch
+# Set defaults for optional configuration. Do not inherit legacy GIT_BRANCH;
+# Xavier uses main unless explicitly overridden with XAVIER_GIT_BRANCH.
+XAVIER_BRANCH=${XAVIER_GIT_BRANCH:-"main"}
+XAVIER_STATE_DIR="${KIN_STATE_DIR:-$XAVIER_STATE_DIR}"
+XAVIER_CONFIG_CACHE_PATH="${KIN_CONFIG_CACHE_PATH:-$XAVIER_CONFIG_CACHE_PATH}"
 
 # Print header
 echo "========================================="
-echo "    Raspberry Pi client installer      "
+echo "    Xavier Forge runtime installer     "
 echo "========================================="
 echo ""
 
@@ -590,29 +597,29 @@ log_info "Setting up repository..."
 # This prevents "dubious ownership" errors when root operates on pi-owned repos
 log_info "Configuring git safe.directory for root..."
 sudo git config --global --add safe.directory "$WRAPPER_DIR" 2>/dev/null || true
-sudo git config --global --add safe.directory "$CLIENT_DIR" 2>/dev/null || true
+sudo git config --global --add safe.directory "$REPO_DIR" 2>/dev/null || true
 
-if [ ! -d "$CLIENT_DIR" ]; then
+if [ ! -d "$REPO_DIR/.git" ]; then
     log_info "Cloning repository from $GIT_REPO_URL..."
     mkdir -p "$WRAPPER_DIR"
     cd "$WRAPPER_DIR"
-    git clone -b "$GIT_BRANCH" "$GIT_REPO_URL" "$CLIENT_DIR"
+    git clone -b "$XAVIER_BRANCH" "$GIT_REPO_URL" "$REPO_DIR"
     log_success "Repository cloned"
 else
-    log_info "Repository already exists at $CLIENT_DIR"
-    cd "$CLIENT_DIR"
+    log_info "Repository already exists at $REPO_DIR"
+    cd "$REPO_DIR"
 
     # Ensure we're using SSH remote
     source "$WRAPPER_DIR/github/fetch_deploy_key.sh"
-    switch_to_ssh_remote "$CLIENT_DIR"
+    switch_to_ssh_remote "$REPO_DIR"
 
-    git fetch origin "$GIT_BRANCH"
-    git reset --hard "origin/$GIT_BRANCH"
+    git fetch origin "$XAVIER_BRANCH"
+    git reset --hard "origin/$XAVIER_BRANCH"
     log_success "Repository updated"
 fi
 
-# Submodule clone writes under CLIENT_DIR; if root ever owned this tree (e.g. launcher run as root), git fails: Permission denied on cerebro/.git
-if [ -d "$CLIENT_DIR" ]; then
+# Submodule clone writes under REPO_DIR; if root ever owned this tree (e.g. launcher run as root), git fails.
+if [ -d "$REPO_DIR" ]; then
     if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
         _REPO_OWNER="$SUDO_USER"
         _REPO_GROUP="$(id -gn "$SUDO_USER" 2>/dev/null || echo "$SUDO_USER")"
@@ -621,27 +628,32 @@ if [ -d "$CLIENT_DIR" ]; then
         _REPO_GROUP="$(id -gn)"
     fi
     _need_chown=0
-    _cur_owner="$(stat -c '%U' "$CLIENT_DIR" 2>/dev/null || true)"
+    _cur_owner="$(stat -c '%U' "$REPO_DIR" 2>/dev/null || true)"
     if [ -n "$_cur_owner" ] && [ "$_cur_owner" != "$_REPO_OWNER" ]; then
         _need_chown=1
     fi
-    if [ -e "$CLIENT_DIR/cerebro" ] && [ ! -w "$CLIENT_DIR/cerebro" ] 2>/dev/null; then
+    if [ -e "$APP_DIR/cerebro" ] && [ ! -w "$APP_DIR/cerebro" ] 2>/dev/null; then
         _need_chown=1
     fi
     if [ "$_need_chown" -eq 1 ]; then
-        log_info "Fixing ownership of $CLIENT_DIR for user $_REPO_OWNER (required for cerebro submodule)..."
-        sudo chown -R "$_REPO_OWNER:$_REPO_GROUP" "$CLIENT_DIR"
+        log_info "Fixing ownership of $REPO_DIR for user $_REPO_OWNER (required for cerebro submodule)..."
+        sudo chown -R "$_REPO_OWNER:$_REPO_GROUP" "$REPO_DIR"
     fi
 fi
 
 # Initialise / update the cerebro submodule (contains ML model weights)
 log_info "Initialising cerebro submodule..."
-cd "$CLIENT_DIR"
+cd "$REPO_DIR"
 git submodule update --init --recursive
 log_success "cerebro submodule ready"
 
+if [ ! -d "$APP_DIR" ]; then
+    log_error "Xavier app directory not found at $APP_DIR"
+    exit 1
+fi
+
 # Step 3b: Install ReSpeaker USB dependencies
-# ReSpeaker tuning tools are now vendored in raspberry-pi-client (no external repo needed)
+# ReSpeaker tuning tools are vendored in Xavier (no external repo needed)
 log_info "Installing ReSpeaker dependencies..."
 if ! sudo python3 -c "import usb.core" 2>/dev/null; then
     log_info "Installing python3-usb (required for ReSpeaker tuning)..."
@@ -762,7 +774,7 @@ if [ ! -f "$CLIENT_DIR/.env" ]; then
     log_info "Creating minimal .env file (device authentication)..."
     cat > "$CLIENT_DIR/.env" <<EOF
 # ============================================================================
-# Raspberry Pi Client - Device Authentication
+# Xavier - Device Authentication
 # ============================================================================
 # This device uses the device authentication system.
 # All runtime configuration (API keys, wake word, etc.) is fetched from the
@@ -777,6 +789,8 @@ BLE_DISCRIMINATOR=$BLE_DISCRIMINATOR_INPUT
 OTEL_ENABLED=true
 OTEL_EXPORTER_ENDPOINT=http://localhost:4318
 ENV=$ENV_INPUT
+KIN_STATE_DIR=$XAVIER_STATE_DIR
+KIN_CONFIG_CACHE_PATH=$XAVIER_CONFIG_CACHE_PATH
 
 # Optional: Override orchestrator URL for testing
 # CONVERSATION_ORCHESTRATOR_URL=ws://localhost:8001/ws
@@ -850,6 +864,12 @@ fi
 
 configure_bluetoothd_battery_override
 
+log_info "Ensuring Xavier state directory exists at $XAVIER_STATE_DIR..."
+sudo mkdir -p "$XAVIER_STATE_DIR"
+sudo chown "$USER:$USER" "$XAVIER_STATE_DIR" 2>/dev/null || true
+sudo chmod 755 "$XAVIER_STATE_DIR"
+log_success "Xavier state directory ready"
+
 # Generate environment file used by the systemd service
 AGENT_ENV_FILE="/etc/default/xavier"
 AGENT_UID="$(id -u "$USER")"
@@ -861,6 +881,9 @@ sudo tee "$AGENT_ENV_FILE" > /dev/null <<EOF
 # ALSA-only mode (ReSpeaker hardware AEC)
 AGENT_USER=$USER
 AGENT_UID=$AGENT_UID
+KIN_RUNTIME=forge
+KIN_STATE_DIR=$XAVIER_STATE_DIR
+KIN_CONFIG_CACHE_PATH=$XAVIER_CONFIG_CACHE_PATH
 EOF
 log_success "Environment file written"
 
@@ -1106,4 +1129,3 @@ echo "     - Update code from git"
 echo "     - Install dependencies"
 echo "     - Launch the client"
 echo ""
-

@@ -1,6 +1,6 @@
 #!/bin/bash
-# Raspberry Pi client launcher
-# This script runs on boot to start the Raspberry Pi client
+# Xavier Forge runtime launcher
+# This script runs on boot to start Xavier on Raspberry Pi OS
 
 set -e
 
@@ -9,9 +9,13 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # Configuration
 WRAPPER_DIR="$SCRIPT_DIR"
-CLIENT_DIR="$WRAPPER_DIR/raspberry-pi-client"
-VENV_DIR="$CLIENT_DIR/venv"
-GIT_REPO_URL="git@github.com:companionsand/raspberry-pi-client.git"  # SSH URL (requires deploy key)
+REPO_DIR="$WRAPPER_DIR/xavier"
+APP_DIR="$REPO_DIR/app"
+CLIENT_DIR="$APP_DIR"  # Backward-compatible name used by older launcher sections.
+VENV_DIR="$APP_DIR/venv"
+GIT_REPO_URL="git@github.com:companionsand/xavier.git"  # SSH URL (requires deploy key)
+XAVIER_STATE_DIR="${KIN_STATE_DIR:-/var/lib/xavier}"
+XAVIER_CONFIG_CACHE_PATH="${KIN_CONFIG_CACHE_PATH:-$XAVIER_STATE_DIR/device-config.json}"
 DAVOICE_WHEEL_URL="https://github.com/frymanofer/Python_WakeWordDetection/raw/main/dist/keyword_detection_lib-2.0.3-cp313-none-manylinux2014_aarch64.whl"
 
 # Logging
@@ -95,7 +99,8 @@ def emit(source, value):
 
 def load_cached_demo_mode():
     try:
-        cache_path = Path.home() / ".kin_config.json"
+        import os
+        cache_path = Path(os.environ.get("KIN_CONFIG_CACHE_PATH", "/var/lib/xavier/device-config.json"))
         if not cache_path.exists():
             return None
         cache_data = json.loads(cache_path.read_text())
@@ -329,22 +334,26 @@ install_davoice_sdk_best_effort() {
     return 0
 }
 
-# Load wrapper .env file if it exists (for GIT_BRANCH configuration)
+# Load wrapper .env file if it exists (for runtime overrides)
 if [ -f "$WRAPPER_DIR/.env" ]; then
     set -a  # Export all variables
     source "$WRAPPER_DIR/.env"
     set +a
 fi
 
-# Set Git branch (from .env or default to main)
-GIT_BRANCH=${GIT_BRANCH:-"main"}
+# Set Xavier Git branch. Do not inherit legacy GIT_BRANCH from old installs;
+# Xavier uses main unless explicitly overridden with XAVIER_GIT_BRANCH.
+XAVIER_BRANCH=${XAVIER_GIT_BRANCH:-"main"}
 BLE_DISCRIMINATOR=${BLE_DISCRIMINATOR:-""}
 BLE_NAME="Olympia_${BLE_DISCRIMINATOR:-SETUP}"
+export KIN_RUNTIME="${KIN_RUNTIME:-forge}"
+export KIN_STATE_DIR="${KIN_STATE_DIR:-$XAVIER_STATE_DIR}"
+export KIN_CONFIG_CACHE_PATH="${KIN_CONFIG_CACHE_PATH:-$XAVIER_CONFIG_CACHE_PATH}"
 
 # Change to wrapper directory
 cd "$WRAPPER_DIR"
 
-log_info "Starting Raspberry Pi client launcher..."
+log_info "Starting Xavier Forge launcher..."
 
 # Step 0: Enforce BLE adapter no-pairing policy before Python starts.
 # This avoids runtime delays/timeouts in the app process and makes behavior
@@ -429,10 +438,13 @@ if [ -n "$BLE_DISCRIMINATOR" ] && [ -f "$CLIENT_DIR/.env" ]; then
 fi
 
 # Step 3: Check if git repo exists
-if [ ! -d "$CLIENT_DIR" ]; then
-    log_error "Repository not found at $CLIENT_DIR"
+if [ ! -d "$REPO_DIR/.git" ]; then
+    log_error "Repository not found at $REPO_DIR"
     log_error "This should not happen - install.sh should have cloned it"
     log_error "Please run install.sh first or check your installation"
+    exit 1
+elif [ ! -d "$APP_DIR" ]; then
+    log_error "Xavier app directory not found at $APP_DIR"
     exit 1
 else
     log_info "Repository found. Checking for updates..."
@@ -440,15 +452,15 @@ else
     # Ensure git safe.directory is configured for root (in case install.sh didn't set it)
     # This prevents "dubious ownership" errors when service runs as root on pi-owned repos
     git config --global --add safe.directory "$WRAPPER_DIR" 2>/dev/null || true
-    git config --global --add safe.directory "$CLIENT_DIR" 2>/dev/null || true
+    git config --global --add safe.directory "$REPO_DIR" 2>/dev/null || true
     
-    cd "$CLIENT_DIR"
+    cd "$REPO_DIR"
     
     # Ensure we're using SSH remote if deploy key is available
     if [ -f "$WRAPPER_DIR/github/fetch_deploy_key.sh" ]; then
         source "$WRAPPER_DIR/github/fetch_deploy_key.sh"
         if has_valid_deploy_key; then
-            switch_to_ssh_remote "$CLIENT_DIR" 2>/dev/null || true
+            switch_to_ssh_remote "$REPO_DIR" 2>/dev/null || true
         fi
     fi
     
@@ -458,7 +470,7 @@ else
         git stash --include-untracked 2>/dev/null || true
         
         # Fetch and pull latest changes
-        if git fetch origin "$GIT_BRANCH" 2>/dev/null && git reset --hard "origin/$GIT_BRANCH" 2>/dev/null; then
+        if git fetch origin "$XAVIER_BRANCH" 2>/dev/null && git reset --hard "origin/$XAVIER_BRANCH" 2>/dev/null; then
             log_success "Repository updated to latest commit"
         else
             log_info "Could not update repository (using local version)"
@@ -623,40 +635,12 @@ if [ "$CURRENT_YEAR" -lt "2024" ]; then
     log_error "Current year: $CURRENT_YEAR (expected >= 2024)"
 fi
 
-# Step 14: Run the client with idle-time monitoring
-log_info "Starting Raspberry Pi client with idle-time monitoring..."
-log_info "Will restart after 3 hours of inactivity for updates"
+# Step 14: Run Xavier under systemd. Xavier does not use an activity marker;
+# restarts are handled by systemd, remote interventions, or explicit service restarts.
+log_info "Starting Xavier runtime..."
 log_info "========================================="
 
-# Activity tracking file (must match raspberry-pi-client lib/engine/core.py — client updates mtime here)
-ACTIVITY_FILE="$CLIENT_DIR/.last_activity"
-IDLE_TIMEOUT=10800  # 3 hours in seconds
-
-# Function to check idle time
-check_idle_time() {
-    if [ ! -f "$ACTIVITY_FILE" ]; then
-        return 1  # File doesn't exist, not idle
-    fi
-    
-    local current_time=$(date +%s)
-    # Try Linux stat first (more common for Raspberry Pi), then macOS stat
-    local file_mtime=$(stat -c %Y "$ACTIVITY_FILE" 2>/dev/null || stat -f %m "$ACTIVITY_FILE" 2>/dev/null)
-    
-    # Verify we got a valid number
-    if ! [[ "$file_mtime" =~ ^[0-9]+$ ]]; then
-        return 1  # Invalid mtime, treat as not idle
-    fi
-    
-    local idle_time=$((current_time - file_mtime))
-    
-    if [ $idle_time -ge $IDLE_TIMEOUT ]; then
-        return 0  # Idle timeout reached
-    else
-        return 1  # Still active
-    fi
-}
-
-# Run the entrypoint in a loop with idle-time monitoring
+# Run the entrypoint in a loop. Updates are checked between process restarts.
 while true; do
     ensure_bluetooth_noinput_agent
 
@@ -701,7 +685,7 @@ while true; do
                     log_info "Resolved runtime mode from backend config: $CLIENT_ENTRYPOINT"
                     ;;
                 cache)
-                    log_info "Resolved runtime mode from cached config (~/.kin_config.json): $CLIENT_ENTRYPOINT"
+                    log_info "Resolved runtime mode from cached config ($KIN_CONFIG_CACHE_PATH): $CLIENT_ENTRYPOINT"
                     ;;
                 *)
                     log_info "Resolved runtime mode using safe fallback (normal mode): $CLIENT_ENTRYPOINT"
@@ -722,31 +706,13 @@ while true; do
     esac
     log_info "Starting $CLIENT_ENTRYPOINT..."
 
-    # Initialize activity file
-    touch "$ACTIVITY_FILE"
-
     # Start the entrypoint with venv interpreter (bare `python` may be system PEP 668 env without deps)
     "$VENV_PYTHON" "$CLIENT_ENTRYPOINT" &
     MAIN_PID=$!
 
     log_info "$CLIENT_ENTRYPOINT started (PID: $MAIN_PID)"
-    
-    # Monitor process and idle time
-    while kill -0 $MAIN_PID 2>/dev/null; do
-        # Check if idle timeout reached
-        if check_idle_time; then
-            log_info "3 hours of idle time detected, restarting for updates..."
-            kill -TERM $MAIN_PID 2>/dev/null || true
-            sleep 5
-            kill -KILL $MAIN_PID 2>/dev/null || true
-            break
-        fi
-        
-        # Check every 60 seconds
-        sleep 60
-    done
-    
-    # Wait for process to fully exit
+
+    # Wait for process to exit; systemd and interventions handle external restarts.
     wait $MAIN_PID 2>/dev/null || true
     exit_code=$?
     
@@ -765,35 +731,35 @@ while true; do
         
         # Ensure git safe.directory is configured (prevents "dubious ownership" errors)
         git config --global --add safe.directory "$WRAPPER_DIR" 2>/dev/null || true
-        git config --global --add safe.directory "$CLIENT_DIR" 2>/dev/null || true
+        git config --global --add safe.directory "$REPO_DIR" 2>/dev/null || true
         
-        cd "$CLIENT_DIR"
+        cd "$REPO_DIR"
         
         # Ensure deploy key is set up and remote is SSH
         if [ -f "$WRAPPER_DIR/github/fetch_deploy_key.sh" ]; then
             source "$WRAPPER_DIR/github/fetch_deploy_key.sh"
             if has_valid_deploy_key; then
-                switch_to_ssh_remote "$CLIENT_DIR" 2>/dev/null || true
+                switch_to_ssh_remote "$REPO_DIR" 2>/dev/null || true
             fi
         fi
         
-        if git fetch origin "$GIT_BRANCH" 2>/dev/null; then
+        if git fetch origin "$XAVIER_BRANCH" 2>/dev/null; then
             # Check if there are updates
             LOCAL=$(git rev-parse HEAD 2>/dev/null || echo "")
-            REMOTE=$(git rev-parse "origin/$GIT_BRANCH" 2>/dev/null || echo "")
+            REMOTE=$(git rev-parse "origin/$XAVIER_BRANCH" 2>/dev/null || echo "")
             
             if [ -n "$LOCAL" ] && [ -n "$REMOTE" ] && [ "$LOCAL" != "$REMOTE" ]; then
                 log_info "Updates found, pulling latest changes..."
-                git reset --hard "origin/$GIT_BRANCH" 2>/dev/null || log_info "Could not apply updates"
+                git reset --hard "origin/$XAVIER_BRANCH" 2>/dev/null || log_info "Could not apply updates"
 
                 git submodule update --init --recursive 2>/dev/null || log_info "Could not update cerebro submodule"
                 
                 # Reinstall requirements in case they changed
-                "$VENV_PYTHON" -m pip install -r requirements.txt -q 2>/dev/null || log_info "Could not update requirements"
+                "$VENV_PYTHON" -m pip install -r "$APP_DIR/requirements.txt" -q 2>/dev/null || log_info "Could not update requirements"
                 # Reinstall openwakeword with --no-deps (see requirements.txt comment)
                 "$VENV_PYTHON" -m pip install --no-deps "openwakeword>=0.6.0" -q 2>/dev/null || true
-                if [ -f "cerebro/pyproject.toml" ]; then
-                    "$VENV_PYTHON" -m pip install -e "$CLIENT_DIR/cerebro" -q 2>/dev/null || true
+                if [ -f "$APP_DIR/cerebro/pyproject.toml" ]; then
+                    "$VENV_PYTHON" -m pip install -e "$APP_DIR/cerebro" -q 2>/dev/null || true
                 fi
                 install_davoice_sdk_best_effort
                 log_success "Updates applied"
@@ -807,5 +773,5 @@ while true; do
         log_info "Skipping update check (no internet)"
     fi
     
-    cd "$CLIENT_DIR"
+    cd "$APP_DIR"
 done
